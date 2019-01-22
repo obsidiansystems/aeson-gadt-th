@@ -13,7 +13,7 @@ build-type: Simple
 
 library
   exposed-modules: Data.Aeson.GADT.TH
-  build-depends: base
+  build-depends: base >= 4.8 && < 4.13
                , aeson
                , dependent-sum
                , template-haskell
