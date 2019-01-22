@@ -34,5 +34,6 @@ When decoding a JSON-encoded GADT, the result will be wrapped using [Data.Some.T
 case (decode $ encode A_a) :: Maybe (Some A) of
   Nothing -> error "Couldn't decode
   Just (This A_a) -> putStrLn "it worked"
+  Just (This A_b) -> putStrLn "wat"
 > it worked
 ```
