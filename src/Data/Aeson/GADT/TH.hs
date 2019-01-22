@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -24,6 +23,13 @@ import Data.Dependent.Sum
 import Data.Functor.Classes
 import Data.Some (Some (..))
 import Language.Haskell.TH
+
+-- | Derive 'ToJSON' and 'FromJSON' instances for the name GADT
+deriveJSONGADT :: Name -> DecsQ
+deriveJSONGADT n = do
+  tj <- deriveToJSONGADT n
+  fj <- deriveFromJSONGADT n
+  return (tj ++ fj)
 
 decCons :: Dec -> [Con]
 decCons = \case
@@ -53,12 +59,6 @@ conArity c = case c of
 {-# DEPRECATED deriveGADTInstances "Use deriveJSONGADT instead" #-}
 deriveGADTInstances :: Name -> DecsQ
 deriveGADTInstances = deriveJSONGADT
-
-deriveJSONGADT :: Name -> DecsQ
-deriveJSONGADT n = do
-  tj <- deriveToJSONGADT n
-  fj <- deriveFromJSONGADT n
-  return (tj ++ fj)
 
 deriveToJSONGADT :: Name -> DecsQ
 deriveToJSONGADT n = do
