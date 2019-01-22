@@ -58,8 +58,7 @@ deriveJSONGADT :: Name -> DecsQ
 deriveJSONGADT n = do
   tj <- deriveToJSONGADT n
   fj <- deriveFromJSONGADT n
-  eqt <- deriveEqTag n
-  return (tj ++ fj  ++ eqt)
+  return (tj ++ fj)
 
 deriveToJSONGADT :: Name -> DecsQ
 deriveToJSONGADT n = do
@@ -84,17 +83,6 @@ deriveFromJSONGADT n = do
       parseJSON v = do
         (tag', v') <- parseJSON v
         $(caseE [|tag' :: String|] $ map (conMatchesParseJSON [|v'|]) cons ++ [wild])
-    |]
-
-deriveEqTag :: Name -> DecsQ
-deriveEqTag n = do
-  x <- reify n
-  let cons = case x of
-       TyConI d -> decCons d
-       _ -> error "undefined"
-  [d|
-    instance Eq1 f => EqTag $(conT n) f where
-      eqTagged a b = $(caseE [|(a, b)|] $ concatMap conMatchesEqTagged cons)
     |]
 
 -- | Generate all required matches (and some redundant ones...) for `eqTagged`
