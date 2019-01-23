@@ -24,6 +24,9 @@ data B :: * -> * where
 
 deriveJSONGADT ''A
 deriveJSONGADT ''B
+
+main :: IO ()
+main = return ()
 ```
 
 ## Encoding:
