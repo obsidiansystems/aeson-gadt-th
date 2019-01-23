@@ -127,10 +127,19 @@ conMatchesParseJSON :: ExpQ -> Con -> MatchQ
 conMatchesParseJSON e c = do
   let name = conName c
       match' = match (litP (StringL (nameBase name)))
-  vars <- replicateM (conArity c) (newName "x")
-  let forTypes _ = do
-        let pat = tupP (map varP vars)
-            conApp = foldl appE (conE name) (map varE vars)
+  let forTypes types = do
+        vars <- forM types $ \typ -> do
+          x <- newName "x"
+          case typ of
+            AppT (ConT tn) (VarT vn) -> do
+              -- This may be a nested GADT, so check for special FromJSON instance
+              idec <- reifyInstances ''FromJSON [AppT (ConT ''Some) (ConT tn)]
+              return $ case idec of
+                [] -> (VarP x, VarE x)
+                _ -> (ConP 'This [VarP x], VarE x) -- If a FromJSON instance is found for Some f, then we use it.
+            _ -> return (VarP x, VarE x)
+        let pat = return $ TupP (map fst vars)
+            conApp = return $ foldl AppE (ConE name) (map snd vars)
             body = doE [ bindS pat [| parseJSON $e |]
                        , noBindS [| return (This $conApp) |]
                        ]

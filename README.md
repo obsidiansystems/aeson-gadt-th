@@ -16,9 +16,14 @@ import Data.Aeson.GADT.TH
 
 data A :: * -> * where
   A_a :: A a
-  A_b :: A ()
+  A_b :: Int -> A ()
+
+data B :: * -> * where
+  B_a :: A a -> B a
+  B_x :: B x
 
 deriveJSONGADT ''A
+deriveJSONGADT ''B
 ```
 
 ## Encoding:
