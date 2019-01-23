@@ -24,7 +24,7 @@ import Data.Functor.Classes
 import Data.Some (Some (..))
 import Language.Haskell.TH
 
--- | Derive 'ToJSON' and 'FromJSON' instances for the name GADT
+-- | Derive 'ToJSON' and 'FromJSON' instances for the named GADT
 deriveJSONGADT :: Name -> DecsQ
 deriveJSONGADT n = do
   tj <- deriveToJSONGADT n
