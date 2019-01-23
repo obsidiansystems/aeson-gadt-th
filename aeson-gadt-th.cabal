@@ -3,7 +3,7 @@ name: aeson-gadt-th
 version: 0.1.1.0
 synopsis: Derivation of Aeson instances for GADTs
 category: JSON
-description: Template Haskell for generating ToJSON and FromJSON instances for GADTs
+description: Template Haskell for generating ToJSON and FromJSON instances for GADTs. See <https://github.com/obsidiansystems/aeson-gadt-th/blob/master/README.md README.md> for examples.
 license: BSD3
 license-file: LICENSE
 author: Obsidian Systems LLC
