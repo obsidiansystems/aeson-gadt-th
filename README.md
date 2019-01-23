@@ -10,7 +10,6 @@ Provides Template Haskell expressions for deriving `ToJSON` and `FromJSON` insta
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-module Test where
 
 import Data.Aeson.GADT.TH
 
