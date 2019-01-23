@@ -10,6 +10,7 @@ author: Obsidian Systems LLC
 maintainer: maintainer@obsidian.systems
 copyright: 2019 Obsidian Systems LLC
 build-type: Simple
+extra-source-files: README.md
 
 library
   exposed-modules: Data.Aeson.GADT.TH
