@@ -67,24 +67,27 @@ deriveToJSONGADT n = do
        TyConI d -> decCons d
        _ -> error "undefined"
   arity <- tyConArity n
-  tyVars <- replicateM arity (newName "a")
+  tyVars <- replicateM arity (newName "topvar")
   let n' = foldr (\v x -> AppT x (VarT v)) (ConT n) tyVars
-  [d|
-    instance ToJSON $(pure n') where
-      toJSON r = $(caseE [|r|] $ map conMatchesToJSON cons)
-    |]
-
-{-
-  tyVars <- replicateM (arity - 1) (newName "a")
-  let n' = foldr (\v x -> AppT x (VarT v)) (ConT n) tyVars
-  [d| instance ArgDict $(pure n') where
-        type ConstraintsFor  $(pure n') $(varT c) = $(pure constraints)
-        type ConstraintsFor' $(pure n') $(varT c) $(varT g) = $(pure constraints')
-        argDict = $(LamCaseE <$> matches n 'argDict)
-        argDict' = $(LamCaseE <$> matches n 'argDict')
-|]
--}
-
+  (matches, typs) <- runWriterT (mapM (fmap pure . conMatchesToJSON tyVars) cons)
+  let nubbedTypes = map head . group . sort $ typs -- This 'head' is safe because 'group' returns a list of non-empty lists
+      constraints = map (AppT (ConT ''ToJSON)) nubbedTypes
+  v <- newName "v"
+  impl <- funD (mkName "toJSON")
+    [ clause [] (normalB $ lamCaseE matches) []
+    ]
+  return [ InstanceD Nothing constraints (AppT (ConT ''ToJSON) n') [impl] ]
+  
+-- | Implementation of 'toJSON'
+conMatchesToJSON :: [Name] -> Con -> WriterT [Type] Q Match
+conMatchesToJSON topVars c = do
+  let name = conName c
+      base = nameBase name
+      toJSONExp e = [| toJSON $(e) |]
+  vars <- lift $ replicateM (conArity c) (newName "x")
+  let body = toJSONExp $ tupE [ [| base :: String |] , tupE $ map (toJSONExp . varE) vars ]
+  _ <- conMatches topVars c
+  lift $ match (conP name (map varP vars)) (normalB body) []
 
 deriveFromJSONGADT :: Name -> DecsQ
 deriveFromJSONGADT n = do
@@ -94,36 +97,51 @@ deriveFromJSONGADT n = do
        _ -> error "undefined"
   let wild = match wildP (normalB [|fail "deriveFromJSONGADT: Supposedly-complete GADT pattern match fell through in generated code. This shouldn't happen."|]) []
   arity <- tyConArity n
-  tyVars <- replicateM (arity - 1) (newName "a")
+  tyVars <- replicateM (arity - 1) (newName "topvar")
   let n' = foldr (\v x -> AppT x (VarT v)) (ConT n) tyVars
-  (matches, typs) <- runWriterT $ mapM (conMatchesParseJSON [|v'|]) cons
+  (matches, typs) <- runWriterT $ mapM (conMatchesParseJSON tyVars [|v'|]) cons
   let nubbedTypes = map head . group . sort $ typs -- This 'head' is safe because 'group' returns a list of non-empty lists
-      constraints = foldl AppT (TupleT (length nubbedTypes)) $
-        map (AppT (ConT ''FromJSON)) nubbedTypes
-  [d|
-    instance $(pure constraints) => FromJSON (Some $(pure n')) where
-      parseJSON v = do
-        (tag', v') <- parseJSON v
-        $(caseE [|tag' :: String|] $ map pure matches ++ [wild])
-    |]
+      constraints = map (AppT (ConT ''FromJSON)) nubbedTypes
+  v <- newName "v"
+  parser <- funD (mkName "parseJSON")
+    [ clause [varP v] (normalB [e| 
+        do (tag', v') <- parseJSON $(varE v)
+           $(caseE [|tag' :: String|] $ map pure matches ++ [wild])
+      |]) []
+    ]
+  return [ InstanceD Nothing constraints (AppT (ConT ''FromJSON) (AppT (ConT ''Some) n')) [parser] ]
 
--- | Implementation of 'toJSON'
-conMatchesToJSON :: Con -> MatchQ
-conMatchesToJSON c = do
-  let name = conName c
-      base = nameBase name
-      toJSONExp e = [| toJSON $(e) |]
-  vars <- replicateM (conArity c) (newName "x")
-  let body = toJSONExp $ tupE [ [| base :: String |] , tupE $ map (toJSONExp . varE) vars ]
-  match (conP name (map varP vars)) (normalB body) []
+substVarsWith
+  :: [Name] -- Names of variables used in the instance head in argument order
+  -> Type -- Result type of constructor
+  -> Type -- Type of argument to the constructor
+  -> Type -- Type of argument with variables substituted for instance head variables.
+substVarsWith topVars (AppT resType _) = subst
+  where
+    topVars' = reverse topVars
+    subst = \case
+      -- TODO: ForallT
+      AppT f x -> AppT (subst f) (subst x)
+      SigT t k -> SigT (subst t) k
+      VarT v -> VarT (findVar v topVars' resType)
+      InfixT t1 x t2 -> InfixT (subst t1) x (subst t2)
+      UInfixT t1 x t2 -> UInfixT (subst t1) x (subst t2)
+      ParensT t -> ParensT (subst t)
+      ConT n -> ConT n
+      x -> error $ "Unhandled case in substVarsWith: " <> show x
 
+    findVar v (tv:tvs) (AppT t (VarT v')) | v == v' = tv
+    findVar v (tv:tvs) (AppT t (VarT v')) = findVar v tvs t
+    findVar v _ _ = error $ "substVarsWith: couldn't look up variable substitution for " <> show v
 
 -- | Implementation of 'parseJSON'
-conMatchesParseJSON :: ExpQ -> Con -> WriterT [Type] Q Match
-conMatchesParseJSON e c = do
+conMatches
+  :: [Name] -- Names of variables used in the instance head in argument order
+  -> Con
+  -> WriterT [Type] Q (Pat, Exp)
+conMatches topVars c = do
   let name = conName c
-      match' = match (litP (StringL (nameBase name)))
-  let forTypes types = do
+      forTypes types resultType = do
         vars <- forM types $ \typ -> do
           x <- lift $ newName "x"
           case typ of
@@ -132,23 +150,29 @@ conMatchesParseJSON e c = do
               idec <- lift $ reifyInstances ''FromJSON [AppT (ConT ''Some) (ConT tn)]
               case idec of
                 [] -> do
-                  tell [typ]
+                  tell [substVarsWith topVars resultType typ]
                   return (VarP x, VarE x)
                 _ -> return $ (ConP 'This [VarP x], VarE x) -- If a FromJSON instance is found for Some f, then we use it.
             _ -> do
-              tell [typ]
+              tell [substVarsWith topVars resultType typ]
               return (VarP x, VarE x)
-        let pat = return $ TupP (map fst vars)
-            conApp = return $ foldl AppE (ConE name) (map snd vars)
-            body = doE [ bindS pat [| parseJSON $e |]
-                       , noBindS [| return (This $conApp) |]
-                       ]
-        lift $ match' (normalB body) []
+        let pat = TupP (map fst vars)
+            conApp = foldl AppE (ConE name) (map snd vars)
+        return (pat, conApp)
   case c of
-    ForallC _ _ c' -> conMatchesParseJSON e c'
-    GadtC _ tys _ -> forTypes (map snd tys)
-    NormalC _ tys -> forTypes (map snd tys)
+    ForallC _ _ c' -> conMatches topVars c'
+    GadtC _ tys t -> forTypes (map snd tys) t
+    --NormalC _ tys -> forTypes (map snd tys) -- nb: If this comes up in a GADT-style declaration, please send me (Cale Gibbard) an example.
     _ -> error "conMatchesParseJSON: Unmatched constructor type"
+
+conMatchesParseJSON :: [Name] -> ExpQ -> Con -> WriterT [Type] Q Match
+conMatchesParseJSON topVars e c = do
+  (pat, conApp) <- conMatches topVars c
+  let match' = match (litP (StringL (nameBase (conName c))))
+      body = doE [ bindS (return pat) [| parseJSON $e |]
+                 , noBindS [| return (This $(return conApp)) |]
+                 ]
+  lift $ match' (normalB body) []
 
 kindArity :: Kind -> Int
 kindArity = \case
