@@ -117,7 +117,6 @@ substVarsWith topVars (AppT resType _) = subst
   where
     topVars' = reverse topVars
     subst = \case
-      -- TODO: ForallT
       AppT f x -> AppT (subst f) (subst x)
       SigT t k -> SigT (subst t) k
       VarT v -> VarT (findVar v topVars' resType)
