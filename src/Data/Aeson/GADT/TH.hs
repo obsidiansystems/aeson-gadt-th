@@ -21,8 +21,6 @@ import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Writer
 import Data.Aeson
-import Data.Dependent.Sum
-import Data.Functor.Classes
 import Data.List
 import Data.Maybe
 import Data.Some (Some (..))
@@ -68,11 +66,10 @@ deriveToJSONGADT n = do
        _ -> error "undefined"
   arity <- tyConArity n
   tyVars <- replicateM arity (newName "topvar")
-  let n' = foldr (\v x -> AppT x (VarT v)) (ConT n) tyVars
+  let n' = foldr (\v c -> AppT c (VarT v)) (ConT n) tyVars
   (matches, typs) <- runWriterT (mapM (fmap pure . conMatchesToJSON tyVars) cons)
   let nubbedTypes = map head . group . sort $ typs -- This 'head' is safe because 'group' returns a list of non-empty lists
       constraints = map (AppT (ConT ''ToJSON)) nubbedTypes
-  v <- newName "v"
   impl <- funD (mkName "toJSON")
     [ clause [] (normalB $ lamCaseE matches) []
     ]
@@ -98,14 +95,14 @@ deriveFromJSONGADT n = do
   let wild = match wildP (normalB [|fail "deriveFromJSONGADT: Supposedly-complete GADT pattern match fell through in generated code. This shouldn't happen."|]) []
   arity <- tyConArity n
   tyVars <- replicateM (arity - 1) (newName "topvar")
-  let n' = foldr (\v x -> AppT x (VarT v)) (ConT n) tyVars
-  (matches, typs) <- runWriterT $ mapM (conMatchesParseJSON tyVars [|v'|]) cons
+  let n' = foldr (\v c -> AppT c (VarT v)) (ConT n) tyVars
+  (matches, typs) <- runWriterT $ mapM (conMatchesParseJSON tyVars [|_v'|]) cons
   let nubbedTypes = map head . group . sort $ typs -- This 'head' is safe because 'group' returns a list of non-empty lists
       constraints = map (AppT (ConT ''FromJSON)) nubbedTypes
   v <- newName "v"
   parser <- funD (mkName "parseJSON")
     [ clause [varP v] (normalB [e| 
-        do (tag', v') <- parseJSON $(varE v)
+        do (tag', _v') <- parseJSON $(varE v)
            $(caseE [|tag' :: String|] $ map pure matches ++ [wild])
       |]) []
     ]
@@ -128,13 +125,14 @@ substVarsWith topVars (AppT resType _) = subst
       UInfixT t1 x t2 -> UInfixT (subst t1) x (subst t2)
       ParensT t -> ParensT (subst t)
       ConT n -> ConT n
-      x -> error $ "Unhandled case in substVarsWith: " <> show x
+      x -> error $ "substVarsWith: Unhandled substitution case: " <> show x
 
-    findVar v (tv:tvs) (AppT t (VarT v')) | v == v' = tv
-    findVar v (tv:tvs) (AppT t (VarT v')) = findVar v tvs t
+    findVar v (tv:_) (AppT _ (VarT v')) | v == v' = tv
+    findVar v (_:tvs) (AppT t (VarT _)) = findVar v tvs t
     findVar v _ _ = error $ "substVarsWith: couldn't look up variable substitution for " <> show v
 
--- | Implementation of 'parseJSON'
+substVarsWith _ typ = error $ "substVarsWith: Unhandled result type: " <> show typ
+
 conMatches
   :: [Name] -- Names of variables used in the instance head in argument order
   -> Con
@@ -145,7 +143,7 @@ conMatches topVars c = do
         vars <- forM types $ \typ -> do
           x <- lift $ newName "x"
           case typ of
-            AppT (ConT tn) (VarT vn) -> do
+            AppT (ConT tn) (VarT _) -> do
               -- This may be a nested GADT, so check for special FromJSON instance
               idec <- lift $ reifyInstances ''FromJSON [AppT (ConT ''Some) (ConT tn)]
               case idec of
@@ -162,8 +160,8 @@ conMatches topVars c = do
   case c of
     ForallC _ _ c' -> conMatches topVars c'
     GadtC _ tys t -> forTypes (map snd tys) t
-    --NormalC _ tys -> forTypes (map snd tys) -- nb: If this comes up in a GADT-style declaration, please send me (Cale Gibbard) an example.
-    _ -> error "conMatchesParseJSON: Unmatched constructor type"
+    --NormalC _ tys -> forTypes (map snd tys) -- nb: If this comes up in a GADT-style declaration, please open an issue on the github repo with an example.
+    _ -> error "conMatches: Unmatched constructor type"
 
 conMatchesParseJSON :: [Name] -> ExpQ -> Con -> WriterT [Type] Q Match
 conMatchesParseJSON topVars e c = do
