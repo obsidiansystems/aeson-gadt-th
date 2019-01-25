@@ -8,18 +8,22 @@ Provides Template Haskell expressions for deriving `ToJSON` and `FromJSON` insta
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
+module Readme where
+
+import Data.Aeson
 import Data.Aeson.GADT.TH
 
 data A :: * -> * where
   A_a :: A a
   A_b :: Int -> A ()
 
-data B :: * -> * where
-  B_a :: A a -> B a
-  B_x :: B x
+data B c :: * -> * where
+  B_a :: c -> A a -> B c a
+  B_x :: B c x
 
 deriveJSONGADT ''A
 deriveJSONGADT ''B
