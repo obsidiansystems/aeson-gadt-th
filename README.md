@@ -12,8 +12,6 @@ Provides Template Haskell expressions for deriving `ToJSON` and `FromJSON` insta
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
-module Readme where
-
 import Data.Aeson
 import Data.Aeson.GADT.TH
 
