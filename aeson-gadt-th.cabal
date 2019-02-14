@@ -1,4 +1,4 @@
-cabal-version: >=1.10
+cabal-version: >=2.0
 name: aeson-gadt-th
 version: 0.1.2.0
 synopsis: Derivation of Aeson instances for GADTs
@@ -27,10 +27,10 @@ executable readme
                , aeson
                , dependent-sum
                , aeson-gadt-th
-               , markdown-unlit
   default-language: Haskell2010
   main-is: README.lhs
   ghc-options: -pgmL markdown-unlit -Wall
+  build-tool-depends: markdown-unlit:markdown-unlit
 
 source-repository head
   type:     git
