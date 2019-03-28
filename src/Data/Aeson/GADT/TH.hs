@@ -24,9 +24,17 @@ module Data.Aeson.GADT.TH
   , deriveToJSONGADTWithOptions
   , deriveFromJSONGADTWithOptions
 
-  , JSONGADTOptions(JSONGADTOptions, gadtConstructorModifier)
+  , JSONGADTOptions
+    ( JSONGADTOptions
+    , gadtConstructorModifier
+    , gadtSumEncoding
+    )
+  , JSONGADTSumEncoding
+    ( JSONGADTTwoElemArray
+    , JSONGADTTaggedObject
+    )
   , defaultJSONGADTOptions
-
+  , defaultJSONGADTTaggedObjectOptions
   ) where
 
 import Control.Monad
@@ -36,14 +44,29 @@ import Data.Aeson
 import Data.List
 import Data.Maybe
 import Data.Some (Some (..))
+import Data.String
 import Language.Haskell.TH
 
-newtype JSONGADTOptions = JSONGADTOptions
-  { gadtConstructorModifier :: String -> String }
+data JSONGADTOptions = JSONGADTOptions
+  { gadtConstructorModifier :: String -> String
+  , gadtSumEncoding :: JSONGADTSumEncoding
+  }
+
+data JSONGADTSumEncoding
+  = JSONGADTTwoElemArray
+  | JSONGADTTaggedObject
+      String -- ^ tag field name
+      String -- ^ contents field name
 
 defaultJSONGADTOptions :: JSONGADTOptions
 defaultJSONGADTOptions = JSONGADTOptions
-  { gadtConstructorModifier = id }
+  { gadtConstructorModifier = id
+  , gadtSumEncoding = JSONGADTTwoElemArray
+  }
+
+defaultJSONGADTTaggedObjectOptions :: JSONGADTOptions
+defaultJSONGADTTaggedObjectOptions = defaultJSONGADTOptions
+  { gadtSumEncoding = JSONGADTTaggedObject "tag" "contents" }
 
 -- | Derive 'ToJSON' and 'FromJSON' instances for the named GADT
 deriveJSONGADT :: Name -> DecsQ
@@ -107,7 +130,15 @@ conMatchesToJSON opts topVars c = do
       base = gadtConstructorModifier opts $ nameBase name
       toJSONExp e = [| toJSON $(e) |]
   vars <- lift $ replicateM (conArity c) (newName "x")
-  let body = toJSONExp $ tupE [ [| base :: String |] , tupE $ map (toJSONExp . varE) vars ]
+  let tagExp = [| base :: String |]
+  let contentsExp = tupE $ map (toJSONExp . varE) vars
+  let body = case gadtSumEncoding opts of
+        JSONGADTTwoElemArray -> toJSONExp $ tupE [ tagExp, contentsExp ]
+        JSONGADTTaggedObject tagName contentsName -> [|
+          object
+            [ fromString $(stringE tagName) .= $(tagExp)
+            , fromString $(stringE contentsName) .= $(contentsExp)
+            ] |]
   _ <- conMatches topVars c
   lift $ match (conP name (map varP vars)) (normalB body) []
 
@@ -136,12 +167,22 @@ deriveFromJSONGADTWithOptions opts n = do
   let nubbedTypes = map head . group . sort $ typs -- This 'head' is safe because 'group' returns a list of non-empty lists
       constraints = map (AppT (ConT ''FromJSON)) nubbedTypes
   v <- newName "v"
-  parser <- funD (mkName "parseJSON")
-    [ clause [varP v] (normalB [e| 
-        do (tag', _v') <- parseJSON $(varE v)
-           $(caseE [|tag' :: String|] $ map pure matches ++ [wild])
-      |]) []
-    ]
+  parser <- funD (mkName "parseJSON") $
+    case gadtSumEncoding opts of
+      JSONGADTTwoElemArray ->
+        [ clause [varP v] (normalB [e|
+            do (tag', _v') <- parseJSON $(varE v)
+               $(caseE [|tag' :: String|] $ map pure matches ++ [wild])
+          |]) []
+        ]
+      JSONGADTTaggedObject tagName contentsName ->
+        [ clause [varP v] (normalB [e|
+            do o    <- parseJSON $(varE v)
+               tag' <- o .: fromString $(stringE tagName)
+               _v'  <- o .: fromString $(stringE contentsName)
+               $(caseE [|tag' :: String|] $ map pure matches ++ [wild])
+          |]) []
+        ]
   return [ InstanceD Nothing constraints (AppT (ConT ''FromJSON) (AppT (ConT ''Some) n')) [parser] ]
 
 substVarsWith
