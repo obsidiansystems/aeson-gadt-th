@@ -15,7 +15,19 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Data.Aeson.GADT.TH (deriveJSONGADT, deriveToJSONGADT, deriveFromJSONGADT) where
+module Data.Aeson.GADT.TH
+  ( deriveJSONGADT
+  , deriveToJSONGADT
+  , deriveFromJSONGADT
+
+  , deriveJSONGADTWithOptions
+  , deriveToJSONGADTWithOptions
+  , deriveFromJSONGADTWithOptions
+
+  , JSONGADTOptions(JSONGADTOptions, gadtConstructorModifier)
+  , defaultJSONGADTOptions
+
+  ) where
 
 import Control.Monad
 import Control.Monad.Trans.Class
@@ -26,11 +38,21 @@ import Data.Maybe
 import Data.Some (Some (..))
 import Language.Haskell.TH
 
+newtype JSONGADTOptions = JSONGADTOptions
+  { gadtConstructorModifier :: String -> String }
+
+defaultJSONGADTOptions :: JSONGADTOptions
+defaultJSONGADTOptions = JSONGADTOptions
+  { gadtConstructorModifier = id }
+
 -- | Derive 'ToJSON' and 'FromJSON' instances for the named GADT
 deriveJSONGADT :: Name -> DecsQ
-deriveJSONGADT n = do
-  tj <- deriveToJSONGADT n
-  fj <- deriveFromJSONGADT n
+deriveJSONGADT = deriveJSONGADTWithOptions defaultJSONGADTOptions
+
+deriveJSONGADTWithOptions :: JSONGADTOptions -> Name -> DecsQ
+deriveJSONGADTWithOptions opts n = do
+  tj <- deriveToJSONGADTWithOptions opts n
+  fj <- deriveFromJSONGADTWithOptions opts n
   return (tj ++ fj)
 
 decCons :: Dec -> [Con]
@@ -59,7 +81,10 @@ conArity c = case c of
   RecGadtC _ ts _ -> length ts
 
 deriveToJSONGADT :: Name -> DecsQ
-deriveToJSONGADT n = do
+deriveToJSONGADT = deriveToJSONGADTWithOptions defaultJSONGADTOptions
+
+deriveToJSONGADTWithOptions :: JSONGADTOptions -> Name -> DecsQ
+deriveToJSONGADTWithOptions opts n = do
   x <- reify n
   let cons = case x of
        TyConI d -> decCons d
@@ -67,19 +92,19 @@ deriveToJSONGADT n = do
   arity <- tyConArity n
   tyVars <- replicateM arity (newName "topvar")
   let n' = foldr (\v c -> AppT c (VarT v)) (ConT n) tyVars
-  (matches, typs) <- runWriterT (mapM (fmap pure . conMatchesToJSON tyVars) cons)
+  (matches, typs) <- runWriterT (mapM (fmap pure . conMatchesToJSON opts tyVars) cons)
   let nubbedTypes = map head . group . sort $ typs -- This 'head' is safe because 'group' returns a list of non-empty lists
       constraints = map (AppT (ConT ''ToJSON)) nubbedTypes
   impl <- funD (mkName "toJSON")
     [ clause [] (normalB $ lamCaseE matches) []
     ]
   return [ InstanceD Nothing constraints (AppT (ConT ''ToJSON) n') [impl] ]
-  
+
 -- | Implementation of 'toJSON'
-conMatchesToJSON :: [Name] -> Con -> WriterT [Type] Q Match
-conMatchesToJSON topVars c = do
+conMatchesToJSON :: JSONGADTOptions -> [Name] -> Con -> WriterT [Type] Q Match
+conMatchesToJSON opts topVars c = do
   let name = conName c
-      base = nameBase name
+      base = gadtConstructorModifier opts $ nameBase name
       toJSONExp e = [| toJSON $(e) |]
   vars <- lift $ replicateM (conArity c) (newName "x")
   let body = toJSONExp $ tupE [ [| base :: String |] , tupE $ map (toJSONExp . varE) vars ]
@@ -87,16 +112,27 @@ conMatchesToJSON topVars c = do
   lift $ match (conP name (map varP vars)) (normalB body) []
 
 deriveFromJSONGADT :: Name -> DecsQ
-deriveFromJSONGADT n = do
+deriveFromJSONGADT = deriveFromJSONGADTWithOptions defaultJSONGADTOptions
+
+deriveFromJSONGADTWithOptions :: JSONGADTOptions -> Name -> DecsQ
+deriveFromJSONGADTWithOptions opts n = do
   x <- reify n
   let cons = case x of
        TyConI d -> decCons d
        _ -> error "undefined"
-  let wild = match wildP (normalB [|fail "deriveFromJSONGADT: Supposedly-complete GADT pattern match fell through in generated code. This shouldn't happen."|]) []
+  let allConNames =
+        intercalate ", " $
+          map (gadtConstructorModifier opts . nameBase . conName) cons
+  wildName <- newName "s"
+  let wild = match (varP wildName) (normalB [e|
+        fail $
+          "Expected tag to be one of [" <> allConNames <> "] but got: "
+          <> $(varE wildName)
+        |]) []
   arity <- tyConArity n
   tyVars <- replicateM (arity - 1) (newName "topvar")
   let n' = foldr (\v c -> AppT c (VarT v)) (ConT n) tyVars
-  (matches, typs) <- runWriterT $ mapM (conMatchesParseJSON tyVars [|_v'|]) cons
+  (matches, typs) <- runWriterT $ mapM (conMatchesParseJSON opts tyVars [|_v'|]) cons
   let nubbedTypes = map head . group . sort $ typs -- This 'head' is safe because 'group' returns a list of non-empty lists
       constraints = map (AppT (ConT ''FromJSON)) nubbedTypes
   v <- newName "v"
@@ -162,10 +198,11 @@ conMatches topVars c = do
     --NormalC _ tys -> forTypes (map snd tys) -- nb: If this comes up in a GADT-style declaration, please open an issue on the github repo with an example.
     _ -> error "conMatches: Unmatched constructor type"
 
-conMatchesParseJSON :: [Name] -> ExpQ -> Con -> WriterT [Type] Q Match
-conMatchesParseJSON topVars e c = do
+-- | Implementation of 'parseJSON'
+conMatchesParseJSON :: JSONGADTOptions -> [Name] -> ExpQ -> Con -> WriterT [Type] Q Match
+conMatchesParseJSON opts topVars e c = do
   (pat, conApp) <- conMatches topVars c
-  let match' = match (litP (StringL (nameBase (conName c))))
+  let match' = match (litP (StringL (gadtConstructorModifier opts $ nameBase (conName c))))
       body = doE [ bindS (return pat) [| parseJSON $e |]
                  , noBindS [| return (This $(return conApp)) |]
                  ]
