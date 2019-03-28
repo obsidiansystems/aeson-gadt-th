@@ -120,7 +120,15 @@ deriveFromJSONGADTWithOptions opts n = do
   let cons = case x of
        TyConI d -> decCons d
        _ -> error "undefined"
-  let wild = match wildP (normalB [|fail "deriveFromJSONGADT: Supposedly-complete GADT pattern match fell through in generated code. This shouldn't happen."|]) []
+  let allConNames =
+        intercalate ", " $
+          map (gadtConstructorModifier opts . nameBase . conName) cons
+  wildName <- newName "s"
+  let wild = match (varP wildName) (normalB [e|
+        fail $
+          "Expected tag to be one of [" <> allConNames <> "] but got: "
+          <> $(varE wildName)
+        |]) []
   arity <- tyConArity n
   tyVars <- replicateM (arity - 1) (newName "topvar")
   let n' = foldr (\v c -> AppT c (VarT v)) (ConT n) tyVars

@@ -26,6 +26,8 @@ main = hspec $ do
         `shouldMatchPattern_` (\case Success (This (Bar 'a')) -> ())
       fromJSON [aesonQQ| ["Baz", 1.2] |]
         `shouldMatchPattern_` (\case Success (This (Baz 1.2)) -> ())
+      (fromJSON [aesonQQ| ["bad", "input"] |] :: Result (Some Foo))
+        `shouldMatchPattern_` (\case Error "Expected tag to be one of [Bar, Baz] but got: bad" -> ())
 
     it "should generate an expected ToJSON instance with options" $ do
       toJSON (Spam'Eggs 'a') `shouldBe` [aesonQQ| ["Eggs", "a"] |]
@@ -35,6 +37,8 @@ main = hspec $ do
         `shouldMatchPattern_` (\case Success (This (Spam'Eggs 'a')) -> ())
       fromJSON [aesonQQ| ["Life", 1.2] |]
         `shouldMatchPattern_` (\case Success (This (Spam'Life 1.2)) -> ())
+      (fromJSON [aesonQQ| ["bad", "input"] |] :: Result (Some Spam))
+        `shouldMatchPattern_` (\case Error "Expected tag to be one of [Eggs, Life] but got: bad" -> ())
 
 data Foo a where
   Bar :: Char -> Foo Char
