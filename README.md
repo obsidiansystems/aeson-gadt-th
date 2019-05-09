@@ -12,9 +12,6 @@ Provides Template Haskell expressions for deriving `ToJSON` and `FromJSON` insta
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE PolyKinds #-}
-
-{-# OPTIONS_GHC -ddump-splices #-}
 
 import Data.Aeson
 import Data.Aeson.GADT.TH
@@ -50,7 +47,7 @@ data LabelledGraphEdit v vm em :: * -> * where
   LabelledGraphEdit_SetEdgeProperties :: v -> v -> em -> LabelledGraphEdit v vm em ()
 
 -- | PropertyGraphEdit operatios for `PropertyGraph`
-data PropertyGraphEdit v (vp :: * -> *) ep r where
+data PropertyGraphEdit v vp ep r where
   PropertyGraphEdit_ClearAll :: PropertyGraphEdit v vp ep ()
   PropertyGraphEdit_AddVertex :: (DMap vp Identity) -> PropertyGraphEdit v vp ep v
   PropertyGraphEdit_AddEdge :: v -> v -> (DMap ep Identity) -> PropertyGraphEdit v vp ep ()
