@@ -36,9 +36,8 @@ import Data.Aeson
 import Data.List
 import Data.Maybe
 import qualified Data.Set as Set
-import Data.Set (Set)
 import Data.Some (Some (..))
-import Language.Haskell.TH
+import Language.Haskell.TH hiding (cxt)
 
 newtype JSONGADTOptions = JSONGADTOptions
   { gadtConstructorModifier :: String -> String }
@@ -181,7 +180,7 @@ substVarsWith
 substVarsWith topVars resultType argType = subst Set.empty argType
   where
     topVars' = reverse topVars
-    AppT resultType' indexType = resultType
+    AppT resultType' _indexType = resultType
     subst bs = \case
       ForallT bndrs cxt t ->
         let bs' = Set.union bs (Set.fromList (map tyVarBndrName bndrs))
