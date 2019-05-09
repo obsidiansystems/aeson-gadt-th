@@ -32,8 +32,12 @@ data B c :: * -> * where
   B_a :: c -> A a -> B c a
   B_x :: B c a
 
+data C t :: * -> * where
+  C_t :: t -> C t t
+
 deriveJSONGADT ''A
 deriveJSONGADT ''B
+deriveJSONGADT ''C
 
 -- Some real-world-ish examples.
 

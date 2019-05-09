@@ -211,7 +211,6 @@ substVarsWith topVars resultType argType = subst Set.empty argType
       ConstraintT -> ConstraintT
       LitT l -> LitT l
       WildCardT -> WildCardT
-    findVar v _ _ | VarT v == indexType = v
     findVar v (tv:_) (AppT _ (VarT v')) | v == v' = tv
     findVar v (_:tvs) (AppT t (VarT _)) = findVar v tvs t
     findVar v _ _ = error $ "substVarsWith: couldn't look up variable substitution for " <> show v
