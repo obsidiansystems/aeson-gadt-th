@@ -16,6 +16,7 @@ library
   exposed-modules: Data.Aeson.GADT.TH
   build-depends: base >= 4.8 && < 4.13
                , aeson
+               , containers
                , dependent-sum
                , transformers
                , template-haskell

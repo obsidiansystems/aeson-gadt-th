@@ -23,6 +23,8 @@ import Control.Monad.Trans.Writer
 import Data.Aeson
 import Data.List
 import Data.Maybe
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Some (Some (..))
 import Language.Haskell.TH
 
@@ -37,7 +39,7 @@ decCons :: Dec -> [Con]
 decCons = \case
   DataD _ _ _ _ cs _ -> cs
   NewtypeD _ _ _ _ c _ -> [c]
-  _ -> error "undefined"
+  _ -> error "decCons: Declaration found was not a data or newtype declaration."
 
 conName :: Con -> Name
 conName c = case c of
@@ -63,7 +65,7 @@ deriveToJSONGADT n = do
   x <- reify n
   let cons = case x of
        TyConI d -> decCons d
-       _ -> error "undefined"
+       _ -> error $ "deriveToJSONGADT: Name `" ++ show n ++ "' does not appear to be the name of a type constructor."
   arity <- tyConArity n
   tyVars <- replicateM arity (newName "topvar")
   let n' = foldr (\v c -> AppT c (VarT v)) (ConT n) tyVars
@@ -89,9 +91,10 @@ conMatchesToJSON topVars c = do
 deriveFromJSONGADT :: Name -> DecsQ
 deriveFromJSONGADT n = do
   x <- reify n
-  let cons = case x of
-       TyConI d -> decCons d
-       _ -> error "undefined"
+  let decl = case x of
+        TyConI d -> d
+        _ -> error $ "deriveFromJSONGADT: Name `" ++ show n ++ "' does not appear to be the name of a type constructor."
+      cons = decCons decl
   let wild = match wildP (normalB [|fail "deriveFromJSONGADT: Supposedly-complete GADT pattern match fell through in generated code. This shouldn't happen."|]) []
   arity <- tyConArity n
   tyVars <- replicateM (arity - 1) (newName "topvar")
@@ -108,30 +111,58 @@ deriveFromJSONGADT n = do
     ]
   return [ InstanceD Nothing constraints (AppT (ConT ''FromJSON) (AppT (ConT ''Some) n')) [parser] ]
 
+-- | Assuming that we're building an instance of the form C (T v_1 ... v_(n-1)) for some GADT T, this function
+-- takes a list of the variables v_1 ... v_(n-1) used in the instance head, as well as the result type of some data
+-- constructor, say T x_1 ... x_(n-1) x_n, as well as the type t of some argument to it, and substitutes any of
+-- x_i (1 <= i <= n-1) occurring in t for the corresponding v_i, taking care to avoid name capture by foralls in t.
 substVarsWith
   :: [Name] -- Names of variables used in the instance head in argument order
   -> Type -- Result type of constructor
   -> Type -- Type of argument to the constructor
   -> Type -- Type of argument with variables substituted for instance head variables.
-substVarsWith topVars (AppT resType _) = subst
+substVarsWith topVars resultType argType = subst Set.empty argType
   where
     topVars' = reverse topVars
-    subst = \case
-      -- TODO: ForallT
-      AppT f x -> AppT (subst f) (subst x)
-      SigT t k -> SigT (subst t) k
-      VarT v -> VarT (findVar v topVars' resType)
-      InfixT t1 x t2 -> InfixT (subst t1) x (subst t2)
-      UInfixT t1 x t2 -> UInfixT (subst t1) x (subst t2)
-      ParensT t -> ParensT (subst t)
+    AppT resultType' (VarT indexVar) = resultType
+    subst bs = \case
+      ForallT bndrs cxt t ->
+        let bs' = Set.union bs (Set.fromList (map boundName bndrs))
+        in ForallT bndrs (map (subst bs') cxt) (subst bs' t)
+      AppT f x -> AppT (subst bs f) (subst bs x)
+      SigT t k -> SigT (subst bs t) k
+      VarT v -> if Set.member v bs
+        then VarT v
+        else VarT (findVar v topVars' resultType')
+      InfixT t1 x t2 -> InfixT (subst bs t1) x (subst bs t2)
+      UInfixT t1 x t2 -> UInfixT (subst bs t1) x (subst bs t2)
+      ParensT t -> ParensT (subst bs t)
+      -- The following cases could all be covered by an "x -> x" case, but I'd rather know if new cases
+      -- need to be handled specially in future versions of Template Haskell.
+      PromotedT n -> PromotedT n
       ConT n -> ConT n
-      x -> error $ "substVarsWith: Unhandled substitution case: " <> show x
-
+      TupleT k -> TupleT k
+      UnboxedTupleT k -> UnboxedTupleT k
+      UnboxedSumT k -> UnboxedSumT k
+      ArrowT -> ArrowT
+      EqualityT -> EqualityT
+      ListT -> ListT
+      PromotedTupleT k -> PromotedTupleT k
+      PromotedNilT -> PromotedNilT
+      PromotedConsT -> PromotedConsT
+      StarT -> StarT
+      ConstraintT -> ConstraintT
+      LitT l -> LitT l
+      WildCardT -> WildCardT
+    findVar v _ _ | v == indexVar = v
     findVar v (tv:_) (AppT _ (VarT v')) | v == v' = tv
     findVar v (_:tvs) (AppT t (VarT _)) = findVar v tvs t
     findVar v _ _ = error $ "substVarsWith: couldn't look up variable substitution for " <> show v
+      <> " with topVars: " <> show topVars <> " resultType: " <> show resultType <> " argType: " <> show argType
 
-substVarsWith _ typ = error $ "substVarsWith: Unhandled result type: " <> show typ
+boundName :: TyVarBndr -> Name
+boundName = \case
+  PlainTV n -> n
+  KindedTV n _ -> n
 
 conMatches
   :: [Name] -- Names of variables used in the instance head in argument order
@@ -183,4 +214,5 @@ kindArity = \case
 tyConArity :: Name -> Q Int
 tyConArity n = reify n >>= return . \case
   TyConI (DataD _ _ ts mk _ _) -> fromMaybe 0 (fmap kindArity mk) + length ts
+  TyConI (NewtypeD _ _ ts mk _ _) -> fromMaybe 0 (fmap kindArity mk) + length ts
   _ -> error $ "tyConArity: Supplied name reified to something other than a data declaration: " <> show n
