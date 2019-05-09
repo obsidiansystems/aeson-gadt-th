@@ -10,12 +10,19 @@ Provides Template Haskell expressions for deriving `ToJSON` and `FromJSON` insta
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PolyKinds #-}
 
-module Readme where
+{-# OPTIONS_GHC -ddump-splices #-}
 
 import Data.Aeson
 import Data.Aeson.GADT.TH
+
+import Data.Dependent.Map (DMap)
+import Data.Dependent.Sum (DSum)
+import Data.Functor.Identity
+import Data.GADT.Compare
 
 data A :: * -> * where
   A_a :: A a
@@ -23,10 +30,38 @@ data A :: * -> * where
 
 data B c :: * -> * where
   B_a :: c -> A a -> B c a
-  B_x :: B c x
+  B_x :: B c a
 
 deriveJSONGADT ''A
 deriveJSONGADT ''B
+
+-- Some real-world-ish examples.
+
+-- | Edit operations for `LabelledGraph`
+data LabelledGraphEdit v vm em :: * -> * where
+  LabelledGraphEdit_ClearAll :: LabelledGraphEdit v vm em ()
+  LabelledGraphEdit_AddVertex :: vm -> LabelledGraphEdit v vm em v
+  LabelledGraphEdit_AddEdge :: v -> v -> em -> LabelledGraphEdit v vm em ()
+  LabelledGraphEdit_SetVertexProperties :: v -> vm -> LabelledGraphEdit v vm em ()
+  LabelledGraphEdit_SetEdgeProperties :: v -> v -> em -> LabelledGraphEdit v vm em ()
+
+-- | PropertyGraphEdit operatios for `PropertyGraph`
+data PropertyGraphEdit v (vp :: * -> *) ep r where
+  PropertyGraphEdit_ClearAll :: PropertyGraphEdit v vp ep ()
+  PropertyGraphEdit_AddVertex :: (DMap vp Identity) -> PropertyGraphEdit v vp ep v
+  PropertyGraphEdit_AddEdge :: v -> v -> (DMap ep Identity) -> PropertyGraphEdit v vp ep ()
+  PropertyGraphEdit_SetVertexProperty :: GCompare vp => v -> DSum vp Identity -> PropertyGraphEdit v vp ep ()
+  PropertyGraphEdit_SetEdgeProperty :: GCompare ep => v -> v -> DSum ep Identity -> PropertyGraphEdit v vp ep ()
+
+-- | View operations for `LabelledGraph`
+data LabelledGraphView v vm em :: * -> * where
+  LabelledGraphView_All :: LabelledGraphView v vm em ()
+  LabelledGraphView_GetVertexProperties :: v -> LabelledGraphView v vm em vm
+  LabelledGraphView_GetEdgeProperties :: v -> v -> LabelledGraphView v vm em em
+
+deriveJSONGADT ''LabelledGraphEdit
+deriveJSONGADT ''PropertyGraphEdit
+deriveJSONGADT ''LabelledGraphView
 
 main :: IO ()
 main = return ()
