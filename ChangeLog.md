@@ -1,5 +1,9 @@
 # Revision history for aeson-gadt-th
 
+## 0.2.1.1
+
+* Drop markdown-unlit in favor of "Bird"-style LHS to avoid some cross-compilation issues.
+
 ## 0.2.1.0
 
 * Extend type variable substitution to handle all current cases in template-haskell.

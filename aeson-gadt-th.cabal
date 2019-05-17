@@ -1,6 +1,6 @@
 cabal-version: >=2.0
 name: aeson-gadt-th
-version: 0.2.1.0
+version: 0.2.1.1
 synopsis: Derivation of Aeson instances for GADTs
 category: JSON
 description: Template Haskell for generating ToJSON and FromJSON instances for GADTs. See <https://github.com/obsidiansystems/aeson-gadt-th/blob/master/README.md README.md> for examples.
