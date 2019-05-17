@@ -13,6 +13,9 @@ build-type: Simple
 extra-source-files: README.md
                     ChangeLog.md
 
+flag build-readme
+  default: True
+
 library
   exposed-modules: Data.Aeson.GADT.TH
   build-depends: base >= 4.8 && < 4.13
@@ -25,6 +28,8 @@ library
   default-language: Haskell2010
 
 executable readme
+  if !flag(build-readme)
+    buildable: False
   build-depends: base
                , aeson
                , dependent-sum
