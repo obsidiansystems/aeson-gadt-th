@@ -28,14 +28,12 @@ executable readme
   build-depends: base
                , aeson
                , dependent-sum
+               , dependent-sum-template
                , dependent-map
                , aeson-gadt-th
   default-language: Haskell2010
   main-is: README.lhs
-  ghc-options: -pgmL markdown-unlit -Wall
-  build-tool-depends: markdown-unlit:markdown-unlit
-  if impl(ghcjs)
-    buildable: false
+  ghc-options: -Wall -optL -q
 
 test-suite aeson-gadt-th-test
   type: exitcode-stdio-1.0
