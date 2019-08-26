@@ -1,6 +1,6 @@
 cabal-version: 2.0
 name: aeson-gadt-th
-version: 0.2.1.1
+version: 0.2.1.2
 synopsis: Derivation of Aeson instances for GADTs
 category: JSON
 description: Template Haskell for generating ToJSON and FromJSON instances for GADTs. See <https://github.com/obsidiansystems/aeson-gadt-th/blob/master/README.md README.md> for examples.
@@ -21,11 +21,11 @@ flag build-readme
 library
   exposed-modules: Data.Aeson.GADT.TH
   build-depends: base >= 4.8 && < 4.13
-               , aeson
-               , containers
-               , dependent-sum
-               , transformers
-               , template-haskell
+               , aeson >= 1.4.4 && < 1.5
+               , containers >= 0.6 && < 0.7
+               , dependent-sum >= 0.6.2 && < 0.7
+               , transformers >= 0.5 && < 0.6
+               , template-haskell >= 2.14.0 && < 2.15
   hs-source-dirs: src
   default-language: Haskell2010
 
@@ -35,8 +35,8 @@ executable readme
   build-depends: base
                , aeson
                , dependent-sum
-               , dependent-sum-template
-               , dependent-map
+               , dependent-sum-template >= 0.1 && < 0.2
+               , dependent-map >= 0.3 && < 0.4
                , aeson-gadt-th
   default-language: Haskell2010
   main-is: README.lhs
