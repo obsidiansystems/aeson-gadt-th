@@ -10,6 +10,8 @@ author: Obsidian Systems LLC
 maintainer: maintainer@obsidian.systems
 copyright: 2019 Obsidian Systems LLC
 build-type: Simple
+tested-with:
+  GHC  ==8.0.2 || ==8.2.2 || ==8.4.4 || ==8.6.5
 extra-source-files: README.md
                     ChangeLog.md
 
