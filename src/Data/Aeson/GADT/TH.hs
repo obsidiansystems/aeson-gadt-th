@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -199,7 +200,9 @@ substVarsWith topVars resultType argType = subst Set.empty argType
       ConT n -> ConT n
       TupleT k -> TupleT k
       UnboxedTupleT k -> UnboxedTupleT k
+#if MIN_VERSION_template_haskell(2,12,0)
       UnboxedSumT k -> UnboxedSumT k
+#endif
       ArrowT -> ArrowT
       EqualityT -> EqualityT
       ListT -> ListT
