@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -96,8 +97,8 @@ deriveFromJSONGADTWithOptions opts n = do
   wildName <- newName "s"
   let wild = match (varP wildName) (normalB [e|
         fail $
-          "Expected tag to be one of [" <> allConNames <> "] but got: "
-          <> $(varE wildName)
+          "Expected tag to be one of [" ++ allConNames ++ "] but got: "
+          ++ $(varE wildName)
         |]) []
   topVars <- init <$> makeTopVars n
   let n' = foldl (\c v -> AppT c (VarT v)) (ConT n) topVars
@@ -199,7 +200,9 @@ substVarsWith topVars resultType argType = subst Set.empty argType
       ConT n -> ConT n
       TupleT k -> TupleT k
       UnboxedTupleT k -> UnboxedTupleT k
+#if MIN_VERSION_template_haskell(2,12,0)
       UnboxedSumT k -> UnboxedSumT k
+#endif
       ArrowT -> ArrowT
       EqualityT -> EqualityT
       ListT -> ListT
@@ -212,8 +215,8 @@ substVarsWith topVars resultType argType = subst Set.empty argType
       WildCardT -> WildCardT
     findVar v (tv:_) (AppT _ (VarT v')) | v == v' = tv
     findVar v (_:tvs) (AppT t (VarT _)) = findVar v tvs t
-    findVar v _ _ = error $ "substVarsWith: couldn't look up variable substitution for " <> show v
-      <> " with topVars: " <> show topVars <> " resultType: " <> show resultType <> " argType: " <> show argType
+    findVar v _ _ = error $ "substVarsWith: couldn't look up variable substitution for " ++ show v
+      ++ " with topVars: " ++ show topVars ++ " resultType: " ++ show resultType ++ " argType: " ++ show argType
 
 -- | Determine the 'Name' being bound by a 'TyVarBndr'.
 tyVarBndrName :: TyVarBndr -> Name
@@ -244,7 +247,7 @@ tyConArity' :: Name -> Q ([TyVarBndr], Int)
 tyConArity' n = reify n >>= return . \case
   TyConI (DataD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
   TyConI (NewtypeD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
-  _ -> error $ "tyConArity': Supplied name reified to something other than a data declaration: " <> show n
+  _ -> error $ "tyConArity': Supplied name reified to something other than a data declaration: " ++ show n
 
 -- | Determine the constructors bound by a data or newtype declaration. Errors out if supplied with another
 -- sort of declaration.

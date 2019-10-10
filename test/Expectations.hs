@@ -15,7 +15,7 @@ expectPattern f a =
   try (evaluate $ f a) >>= \case
     Right b -> pure b
     Left (e :: PatternMatchFail) ->
-      throwHUnit $ "Pattern match failed, value was: " <> show a
+      throwHUnit $ "Pattern match failed, value was: " ++ show a
 
 -- | Same as 'expectPattern' but with its arguments flipped.
 shouldMatchPattern :: (HasCallStack, Show a) => a -> (a -> b) -> IO b
