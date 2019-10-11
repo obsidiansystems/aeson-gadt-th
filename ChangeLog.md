@@ -1,5 +1,9 @@
 # Revision history for aeson-gadt-th
 
+## 0.2.1.2
+
+* Add version bounds to cabal file
+
 ## 0.2.1.1
 
 * Drop markdown-unlit in favor of "Bird"-style LHS to avoid some cross-compilation issues.

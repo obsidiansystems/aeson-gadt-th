@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -99,8 +100,8 @@ deriveFromJSONGADTWithOptions opts n = do
   wildName <- newName "s"
   let wild = match (varP wildName) (normalB [e|
         fail $
-          "Expected tag to be one of [" <> allConNames <> "] but got: "
-          <> $(varE wildName)
+          "Expected tag to be one of [" ++ allConNames ++ "] but got: "
+          ++ $(varE wildName)
         |]) []
   topVars <- init <$> makeTopVars n
   let n' = foldl (\c v -> AppT c (VarT v)) (ConT n) topVars
