@@ -246,4 +246,4 @@ tyConArity' :: Name -> Q ([TyVarBndr], Int)
 tyConArity' n = reify n >>= return . \case
   TyConI (DataD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
   TyConI (NewtypeD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
-  _ -> error $ "tyConArity': Supplied name reified to something other than a data declaration: " <> show n
+  _ -> error $ "tyConArity': Supplied name reified to something other than a data declaration: " ++ show n
