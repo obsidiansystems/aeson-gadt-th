@@ -41,7 +41,7 @@ import Data.Maybe
 import qualified Data.Set as Set
 import Data.Some (Some (..))
 import Language.Haskell.TH hiding (cxt)
-import Language.Haskell.TH.Extras (nameOfBinder, kindArity)
+import Language.Haskell.TH.Extras (nameOfBinder)
 import Data.Set (Set)
 import qualified Data.Set as Set
 
@@ -228,6 +228,15 @@ conName c = case c of
   GadtC [n] _ _ -> n
   RecGadtC [n] _ _ -> n
   _ -> error "conName: GADT constructors with multiple names not yet supported"
+
+-- | Determine the arity of a kind.
+kindArity :: Kind -> Int
+kindArity = \case
+  ForallT _ _ t -> kindArity t
+  AppT (AppT ArrowT _) t -> 1 + kindArity t
+  SigT t _ -> kindArity t
+  ParensT t -> kindArity t
+  _ -> 0
 
 -- | Given the name of a type constructor, determine a list of type variables bound as parameters by
 -- its declaration, and the arity of the kind of type being defined (i.e. how many more arguments would
