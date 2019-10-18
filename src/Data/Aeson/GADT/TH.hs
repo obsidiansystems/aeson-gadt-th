@@ -41,6 +41,9 @@ import Data.Maybe
 import qualified Data.Set as Set
 import Data.Some (Some (..))
 import Language.Haskell.TH hiding (cxt)
+import Language.Haskell.TH.Extras
+import Data.Set (Set)
+import qualified Data.Set as Set
 
 import Language.Haskell.TH.Datatype
 
