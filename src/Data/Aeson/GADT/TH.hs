@@ -193,7 +193,7 @@ conMatches clsName topVars c = do
           case insts of
             [] -> tellCxt [AppT (ConT clsName) typ]
             [(InstanceD _ cxt _ _)] -> tellCxt cxt
-            _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show typ ++ " exist, and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
+            _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show (ppr typ) ++ " exist (rigids: " ++ unwords (map show topVars) ++ "), and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
     case typ of
       AppT (ConT tn) (VarT _) -> do
         -- This may be a nested GADT, so check for special FromJSON instance
@@ -206,7 +206,7 @@ conMatches clsName topVars c = do
           [(InstanceD _ cxt _ _)] -> do
             tellCxt cxt
             return (ConP 'Some [VarP x], VarE x)
-          _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show (ppr [AppT (ConT ''Some) (ConT tn)]) ++ " exist, and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
+          _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show (ppr [AppT (ConT ''Some) (ConT tn)]) ++ " exist (rigids: " ++ unwords (map show topVars) ++ "), and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
       _ -> do
         demandInstanceIfNecessary  
         return (VarP x, VarE x)
