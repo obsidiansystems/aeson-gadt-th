@@ -41,7 +41,7 @@ import Data.Maybe
 import qualified Data.Set as Set
 import Data.Some (Some (..))
 import Language.Haskell.TH hiding (cxt)
-import Language.Haskell.TH.Extras
+import Language.Haskell.TH.Extras (nameOfBinder, kindArity)
 import Data.Set (Set)
 import qualified Data.Set as Set
 
@@ -228,3 +228,13 @@ conName c = case c of
   GadtC [n] _ _ -> n
   RecGadtC [n] _ _ -> n
   _ -> error "conName: GADT constructors with multiple names not yet supported"
+
+-- | Given the name of a type constructor, determine a list of type variables bound as parameters by
+-- its declaration, and the arity of the kind of type being defined (i.e. how many more arguments would
+-- need to be supplied in addition to the bound parameters in order to obtain an ordinary type of kind *).
+-- If the supplied 'Name' is anything other than a data or newtype, produces an error.
+tyConArity' :: Name -> Q ([TyVarBndr], Int)
+tyConArity' n = reify n >>= return . \case
+  TyConI (DataD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
+  TyConI (NewtypeD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
+  _ -> error $ "tyConArity': Supplied name reified to something other than a data declaration: " <> show n
