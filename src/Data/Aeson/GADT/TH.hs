@@ -201,13 +201,13 @@ conMatches clsName topVars ixVar c = do
       rigidImplications = Map.unionsWith Set.union $ fmap freeTypeVariables <$> unifiedEqualities
   let expandRigids :: Set Name -> Set Name
       expandRigids rigids = Set.union rigids $ Set.unions $ Map.elems $
-        Map.restrictKeys rigidImplications rigids
+        restrictKeys rigidImplications rigids
       expandRigidsFully rigids =
         let rigids' = expandRigids rigids
         in if rigids' == rigids then rigids else expandRigidsFully rigids'
       rigidVars = expandRigidsFully topVars
       ixSpecialization :: Map Name Type
-      ixSpecialization = Map.restrictKeys (Map.unions unifiedEqualities) $ Set.singleton ixVar
+      ixSpecialization = restrictKeys (Map.unions unifiedEqualities) $ Set.singleton ixVar
       -- We filter out constraints which don't mention variables from the instance head mostly to avoid warnings,
       -- but a good deal more of these occur than one might expect due to the normalisation done by reifyDatatype.
       tellCxt cs = do
@@ -278,3 +278,14 @@ tyConArity' n = reify n >>= return . \case
   TyConI (DataD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
   TyConI (NewtypeD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
   _ -> error $ "tyConArity': Supplied name reified to something other than a data declaration: " ++ show n
+
+
+-----------------------------------------------------------------------------------------------------
+
+restrictKeys :: Ord k => Map k v -> Set k -> Map k v
+restrictKeys m s =
+#if MIN_VERSION_containers(0,5,8)
+  Map.restrictKeys m s
+#else
+  Map.intersection m $ Map.fromSet (const ()) s
+#endif
