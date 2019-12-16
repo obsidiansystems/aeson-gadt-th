@@ -37,6 +37,8 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Writer
 import Data.Aeson
 import Data.List
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Some (Some (..))
@@ -108,7 +110,8 @@ deriveToJSONGADTWithOptions opts n = do
   let cons = datatypeCons info
   topVars <- makeTopVars n
   let n' = foldl (\c v -> AppT c (VarT v)) (ConT n) topVars
-  (matches, constraints') <- runWriterT (mapM (fmap pure . conMatchesToJSON opts (init topVars)) cons)
+  (matches, constraints') <- runWriterT (mapM (fmap pure . conMatchesToJSON opts topVars) cons)
+  m <- sequence matches
   let constraints = map head . group . sort $ constraints' -- This 'head' is safe because 'group' returns a list of non-empty lists
   impl <- funD (mkName "toJSON")
     [ clause [] (normalB $ lamCaseE matches) []
@@ -138,8 +141,8 @@ deriveFromJSONGADTWithOptions opts n = do
           "Expected tag to be one of [" ++ allConNames ++ "] but got: "
           ++ $(varE wildName)
         |]) []
-  topVars <- init <$> makeTopVars n
-  let n' = foldl (\c v -> AppT c (VarT v)) (ConT n) topVars
+  topVars <- makeTopVars n
+  let n' = foldl (\c v -> AppT c (VarT v)) (ConT n) $ init topVars
   (matches, constraints') <- runWriterT $ mapM (conMatchesParseJSON opts topVars [|_v'|]) cons
   let constraints = map head . group . sort $ constraints' -- This 'head' is safe because 'group' returns a list of non-empty lists
   v <- newName "v"
@@ -151,21 +154,28 @@ deriveFromJSONGADTWithOptions opts n = do
     ]
   return [ InstanceD Nothing constraints (AppT (ConT ''FromJSON) (AppT (ConT ''Some) n')) [parser] ]
 
+splitTopVars :: [Name] -> (Set Name, Name)
+splitTopVars allTopVars = case reverse allTopVars of
+  (x:xs) -> (Set.fromList xs, x)
+  _ -> error "splitTopVars: Empty set of variables"
+
 -- | Implementation of 'toJSON'
 conMatchesToJSON :: JSONGADTOptions -> [Name] -> ConstructorInfo -> WriterT [Type] Q Match
-conMatchesToJSON opts topVars c = do
-  let name = constructorName c
+conMatchesToJSON opts allTopVars c = do
+  let (topVars, lastVar) = splitTopVars allTopVars
+      name = constructorName c
       base = gadtConstructorModifier opts $ nameBase name
       toJSONExp e = [| toJSON $(e) |]
   vars <- lift . forM (constructorFields c) $ \_ -> newName "x"
   let body = toJSONExp $ tupE [ [| base :: String |] , tupE $ map (toJSONExp . varE) vars ]
-  _ <- conMatches ''ToJSON topVars c
+  _ <- conMatches ''ToJSON topVars lastVar c
   lift $ match (conP name (map varP vars)) (normalB body) []
 
 -- | Implementation of 'parseJSON'
 conMatchesParseJSON :: JSONGADTOptions -> [Name] -> ExpQ -> ConstructorInfo -> WriterT [Type] Q Match
-conMatchesParseJSON opts topVars e c = do
-  (pat, conApp) <- conMatches ''FromJSON topVars c
+conMatchesParseJSON opts allTopVars e c = do
+  let (topVars, lastVar) = splitTopVars allTopVars
+  (pat, conApp) <- conMatches ''FromJSON topVars lastVar c
   let match' = match (litP (StringL (gadtConstructorModifier opts $ nameBase (constructorName c))))
       body = doE [ bindS (return pat) [| parseJSON $e |]
                  , noBindS [| return (Some $(return conApp)) |]
@@ -174,39 +184,60 @@ conMatchesParseJSON opts topVars e c = do
 
 conMatches
   :: Name -- ^ Name of class (''ToJSON or ''FromJSON)
-  -> [Name] -- Names of variables used in the instance head in argument order
+  -> Set Name -- Names of variables used in the instance head in argument order
+  -> Name -- Final type variable (the index type)
   -> ConstructorInfo
   -> WriterT [Type] Q (Pat, Exp)
-conMatches clsName topVars c = do
+conMatches clsName topVars ixVar c = do
   let mkConstraint = AppT (ConT clsName)
       name = constructorName c
       types = constructorFields c
-      topVarSet = Set.fromList topVars
+      (constraints, equalities') = flip partition (constructorContext c) $ \case
+        AppT (AppT EqualityT _) _ -> False
+        _ -> True
+      equalities = concat [ [(a, b), (b, a)] | AppT (AppT EqualityT a) b <- equalities' ]
+  unifiedEqualities :: [Map Name Type] <- lift $ forM equalities $ \(a, b) -> unifyTypes [a, b]
+  let rigidImplications :: Map Name (Set Name)
+      rigidImplications = Map.unionsWith Set.union $ fmap freeTypeVariables <$> unifiedEqualities
+  let expandRigids :: Set Name -> Set Name
+      expandRigids rigids = Set.union rigids $ Set.unions $ Map.elems $
+        Map.restrictKeys rigidImplications rigids
+      expandRigidsFully rigids =
+        let rigids' = expandRigids rigids
+        in if rigids' == rigids then rigids else expandRigidsFully rigids'
+      rigidVars = expandRigidsFully topVars
+      ixSpecialization :: Map Name Type
+      ixSpecialization = Map.restrictKeys (Map.unions unifiedEqualities) $ Set.singleton ixVar
       -- We filter out constraints which don't mention variables from the instance head mostly to avoid warnings,
       -- but a good deal more of these occur than one might expect due to the normalisation done by reifyDatatype.
-      tellCxt cs =
-        tell [c | c <- cs, not (null (Set.intersection (freeTypeVariables c) topVarSet))]
+      tellCxt cs = do
+        tell [c | c <- applySubstitution ixSpecialization cs ]
+  tellCxt constraints
   vars <- forM types $ \typ -> do
     x <- lift $ newName "x"
     let demandInstanceIfNecessary = do
-          insts <- lift $ reifyInstancesWithRigids topVarSet clsName [typ]
+          insts <- lift $ reifyInstancesWithRigids rigidVars clsName [typ]
           case insts of
             [] -> tellCxt [AppT (ConT clsName) typ]
-            [(InstanceD _ cxt _ _)] -> tellCxt cxt
-            _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show (ppr typ) ++ " exist (rigids: " ++ unwords (map show topVars) ++ "), and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
+            [InstanceD _ cxt (AppT _className ityp) _] -> do
+              sub <- lift $ unifyTypes [ityp, typ]
+              tellCxt $ applySubstitution sub cxt
+
+            _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show typ ++ " exist (rigids: " ++ unwords (map show $ Set.toList rigidVars) ++ "), and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
     case typ of
-      AppT (ConT tn) (VarT _) -> do
+      AppT tn (VarT _) -> do
         -- This may be a nested GADT, so check for special FromJSON instance
-        insts <- lift $ reifyInstancesWithRigids topVarSet clsName [AppT (ConT ''Some) (ConT tn)]
+        insts <- lift $ reifyInstancesWithRigids rigidVars clsName [AppT (ConT ''Some) tn]
         case insts of
           [] -> do
             -- No special instance, try to check the type for a straightforward one, since if we don't have one, we need to demand it.
             demandInstanceIfNecessary
             return (VarP x, VarE x)
-          [(InstanceD _ cxt _ _)] -> do
-            tellCxt cxt
+          [InstanceD _ cxt (AppT _className (AppT (ConT _some) ityp)) _] -> do
+            sub <- lift $ unifyTypes [ityp, tn]
+            tellCxt $ applySubstitution sub cxt
             return (ConP 'Some [VarP x], VarE x)
-          _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show (ppr [AppT (ConT ''Some) (ConT tn)]) ++ " exist (rigids: " ++ unwords (map show topVars) ++ "), and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
+          _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show (ppr [AppT (ConT ''Some) tn]) ++ " exist (rigids: " ++ unwords (map show $ Set.toList rigidVars) ++ "), and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
       _ -> do
         demandInstanceIfNecessary  
         return (VarP x, VarE x)
