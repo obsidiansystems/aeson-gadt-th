@@ -1,5 +1,10 @@
 # Revision history for aeson-gadt-th
 
+## 0.2.2
+
+* Do a better job determining which variables are rigid when looking for instances
+* Unify discovered instance head with argument type and make the same substitution in the context that constrains the instance we're writing
+
 ## 0.2.1.2
 
 * Add version bounds to cabal file

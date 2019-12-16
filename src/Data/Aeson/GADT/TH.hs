@@ -15,6 +15,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE PolyKinds #-}
+
 
 module Data.Aeson.GADT.TH
   ( deriveJSONGADT
@@ -35,10 +37,52 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Writer
 import Data.Aeson
 import Data.List
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Some (Some (..))
 import Language.Haskell.TH hiding (cxt)
+import Language.Haskell.TH.Extras (nameOfBinder)
+import Data.Set (Set)
+import qualified Data.Set as Set
+
+import Language.Haskell.TH.Datatype
+
+import System.IO (hFlush, stdout)
+
+-- Do not export this type family, it must remain empty. It's used as a way to trick GHC into not unifying certain type variables.
+type family Skolem :: k -> k
+
+tyVarBndrName :: TyVarBndr -> Name
+tyVarBndrName = \case
+  PlainTV n -> n
+  KindedTV n _ -> n
+
+skolemize :: Set Name -> Type -> Type
+skolemize rigids t = case t of
+  ForallT bndrs cxt t' -> ForallT bndrs cxt (skolemize (Set.difference rigids (Set.fromList (map tyVarBndrName bndrs))) t')
+  AppT t1 t2 -> AppT (skolemize rigids t1) (skolemize rigids t2)
+  SigT t k -> SigT (skolemize rigids t) k
+  VarT v -> if Set.member v rigids
+    then AppT (ConT ''Skolem) (VarT v)
+    else t
+  InfixT t1 n t2 -> InfixT (skolemize rigids t1) n (skolemize rigids t2)
+  UInfixT t1 n t2 -> UInfixT (skolemize rigids t1) n (skolemize rigids t2)
+  ParensT t -> ParensT (skolemize rigids t)
+  _ -> t
+
+reifyInstancesWithRigids :: Set Name -> Name -> [Type] -> Q [InstanceDec]
+reifyInstancesWithRigids rigids cls tys = reifyInstances cls (map (skolemize rigids) tys)
+
+-- | Determine the type variables which occur freely in a type.
+freeTypeVariables :: Type -> Set Name
+freeTypeVariables t = case t of
+  ForallT bndrs _ t' -> Set.difference (freeTypeVariables t') (Set.fromList (map nameOfBinder bndrs))
+  AppT t1 t2 -> Set.union (freeTypeVariables t1) (freeTypeVariables t2)
+  SigT t _ -> freeTypeVariables t
+  VarT n -> Set.singleton n
+  _ -> Set.empty
 
 newtype JSONGADTOptions = JSONGADTOptions
   { gadtConstructorModifier :: String -> String }
@@ -62,13 +106,12 @@ deriveToJSONGADT = deriveToJSONGADTWithOptions defaultJSONGADTOptions
 
 deriveToJSONGADTWithOptions :: JSONGADTOptions -> Name -> DecsQ
 deriveToJSONGADTWithOptions opts n = do
-  x <- reify n
-  let cons = case x of
-       TyConI d -> decCons d
-       _ -> error $ "deriveToJSONGADT: Name `" ++ show n ++ "' does not appear to be the name of a type constructor."
+  info <- reifyDatatype n
+  let cons = datatypeCons info
   topVars <- makeTopVars n
   let n' = foldl (\c v -> AppT c (VarT v)) (ConT n) topVars
-  (matches, constraints') <- runWriterT (mapM (fmap pure . conMatchesToJSON opts (init topVars)) cons)
+  (matches, constraints') <- runWriterT (mapM (fmap pure . conMatchesToJSON opts topVars) cons)
+  m <- sequence matches
   let constraints = map head . group . sort $ constraints' -- This 'head' is safe because 'group' returns a list of non-empty lists
   impl <- funD (mkName "toJSON")
     [ clause [] (normalB $ lamCaseE matches) []
@@ -86,22 +129,20 @@ deriveFromJSONGADT = deriveFromJSONGADTWithOptions defaultJSONGADTOptions
 
 deriveFromJSONGADTWithOptions :: JSONGADTOptions -> Name -> DecsQ
 deriveFromJSONGADTWithOptions opts n = do
-  x <- reify n
-  let decl = case x of
-        TyConI d -> d
-        _ -> error $ "deriveFromJSONGADT: Name `" ++ show n ++ "' does not appear to be the name of a type constructor."
-      cons = decCons decl
+  info <- reifyDatatype n
+
+  let cons = datatypeCons info
       allConNames =
         intercalate ", " $
-          map (gadtConstructorModifier opts . nameBase . conName) cons
+          map (gadtConstructorModifier opts . nameBase . constructorName) cons
   wildName <- newName "s"
   let wild = match (varP wildName) (normalB [e|
         fail $
           "Expected tag to be one of [" ++ allConNames ++ "] but got: "
           ++ $(varE wildName)
         |]) []
-  topVars <- init <$> makeTopVars n
-  let n' = foldl (\c v -> AppT c (VarT v)) (ConT n) topVars
+  topVars <- makeTopVars n
+  let n' = foldl (\c v -> AppT c (VarT v)) (ConT n) $ init topVars
   (matches, constraints') <- runWriterT $ mapM (conMatchesParseJSON opts topVars [|_v'|]) cons
   let constraints = map head . group . sort $ constraints' -- This 'head' is safe because 'group' returns a list of non-empty lists
   v <- newName "v"
@@ -113,149 +154,98 @@ deriveFromJSONGADTWithOptions opts n = do
     ]
   return [ InstanceD Nothing constraints (AppT (ConT ''FromJSON) (AppT (ConT ''Some) n')) [parser] ]
 
+splitTopVars :: [Name] -> (Set Name, Name)
+splitTopVars allTopVars = case reverse allTopVars of
+  (x:xs) -> (Set.fromList xs, x)
+  _ -> error "splitTopVars: Empty set of variables"
+
 -- | Implementation of 'toJSON'
-conMatchesToJSON :: JSONGADTOptions -> [Name] -> Con -> WriterT [Type] Q Match
-conMatchesToJSON opts topVars c = do
-  let name = conName c
+conMatchesToJSON :: JSONGADTOptions -> [Name] -> ConstructorInfo -> WriterT [Type] Q Match
+conMatchesToJSON opts allTopVars c = do
+  let (topVars, lastVar) = splitTopVars allTopVars
+      name = constructorName c
       base = gadtConstructorModifier opts $ nameBase name
       toJSONExp e = [| toJSON $(e) |]
-  vars <- lift $ replicateM (conArity c) (newName "x")
+  vars <- lift . forM (constructorFields c) $ \_ -> newName "x"
   let body = toJSONExp $ tupE [ [| base :: String |] , tupE $ map (toJSONExp . varE) vars ]
-  _ <- conMatches (AppT (ConT ''ToJSON)) topVars c
+  _ <- conMatches ''ToJSON topVars lastVar c
   lift $ match (conP name (map varP vars)) (normalB body) []
 
 -- | Implementation of 'parseJSON'
-conMatchesParseJSON :: JSONGADTOptions -> [Name] -> ExpQ -> Con -> WriterT [Type] Q Match
-conMatchesParseJSON opts topVars e c = do
-  (pat, conApp) <- conMatches (AppT (ConT ''FromJSON))  topVars c
-  let match' = match (litP (StringL (gadtConstructorModifier opts $ nameBase (conName c))))
+conMatchesParseJSON :: JSONGADTOptions -> [Name] -> ExpQ -> ConstructorInfo -> WriterT [Type] Q Match
+conMatchesParseJSON opts allTopVars e c = do
+  let (topVars, lastVar) = splitTopVars allTopVars
+  (pat, conApp) <- conMatches ''FromJSON topVars lastVar c
+  let match' = match (litP (StringL (gadtConstructorModifier opts $ nameBase (constructorName c))))
       body = doE [ bindS (return pat) [| parseJSON $e |]
-                 , noBindS [| return (This $(return conApp)) |]
+                 , noBindS [| return (Some $(return conApp)) |]
                  ]
   lift $ match' (normalB body) []
 
 conMatches
-  :: (Type -> Type) -- ^ Function to apply to form instance constraints
-  -> [Name] -- Names of variables used in the instance head in argument order
-  -> Con
+  :: Name -- ^ Name of class (''ToJSON or ''FromJSON)
+  -> Set Name -- Names of variables used in the instance head in argument order
+  -> Name -- Final type variable (the index type)
+  -> ConstructorInfo
   -> WriterT [Type] Q (Pat, Exp)
-conMatches mkConstraint topVars c = do
-  let name = conName c
-      forTypes types resultType = do
-        vars <- forM types $ \typ -> do
-          x <- lift $ newName "x"
-          case typ of
-            AppT (ConT tn) (VarT _) -> do
-              -- This may be a nested GADT, so check for special FromJSON instance
-              idec <- lift $ reifyInstances ''FromJSON [AppT (ConT ''Some) (ConT tn)]
-              case idec of
-                [] -> do
-                  tell [mkConstraint (substVarsWith topVars resultType typ)]
-                  return (VarP x, VarE x)
-                _ -> return $ (ConP 'This [VarP x], VarE x) -- If a FromJSON instance is found for Some f, then we use it.
-            _ -> do
-              tell [mkConstraint (substVarsWith topVars resultType typ)]
-              return (VarP x, VarE x)
-        let pat = TupP (map fst vars)
-            conApp = foldl AppE (ConE name) (map snd vars)
-        return (pat, conApp)
-  case c of
-    ForallC _ cxt (GadtC _ tys t) -> do
-      tell (map (substVarsWith topVars t) cxt)
-      forTypes (map snd tys) t
-    GadtC _ tys t -> forTypes (map snd tys) t
-    --NormalC _ tys -> forTypes (map snd tys) -- nb: If this comes up in a GADT-style declaration, please open an issue on the github repo with an example.
-    _ -> error "conMatches: Unmatched constructor type"
+conMatches clsName topVars ixVar c = do
+  let mkConstraint = AppT (ConT clsName)
+      name = constructorName c
+      types = constructorFields c
+      (constraints, equalities') = flip partition (constructorContext c) $ \case
+        AppT (AppT EqualityT _) _ -> False
+        _ -> True
+      equalities = concat [ [(a, b), (b, a)] | AppT (AppT EqualityT a) b <- equalities' ]
+  unifiedEqualities :: [Map Name Type] <- lift $ forM equalities $ \(a, b) -> unifyTypes [a, b]
+  let rigidImplications :: Map Name (Set Name)
+      rigidImplications = Map.unionsWith Set.union $ fmap freeTypeVariables <$> unifiedEqualities
+  let expandRigids :: Set Name -> Set Name
+      expandRigids rigids = Set.union rigids $ Set.unions $ Map.elems $
+        restrictKeys rigidImplications rigids
+      expandRigidsFully rigids =
+        let rigids' = expandRigids rigids
+        in if rigids' == rigids then rigids else expandRigidsFully rigids'
+      rigidVars = expandRigidsFully topVars
+      ixSpecialization :: Map Name Type
+      ixSpecialization = restrictKeys (Map.unions unifiedEqualities) $ Set.singleton ixVar
+      -- We filter out constraints which don't mention variables from the instance head mostly to avoid warnings,
+      -- but a good deal more of these occur than one might expect due to the normalisation done by reifyDatatype.
+      tellCxt cs = do
+        tell [c | c <- applySubstitution ixSpecialization cs ]
+  tellCxt constraints
+  vars <- forM types $ \typ -> do
+    x <- lift $ newName "x"
+    let demandInstanceIfNecessary = do
+          insts <- lift $ reifyInstancesWithRigids rigidVars clsName [typ]
+          case insts of
+            [] -> tellCxt [AppT (ConT clsName) typ]
+            [InstanceD _ cxt (AppT _className ityp) _] -> do
+              sub <- lift $ unifyTypes [ityp, typ]
+              tellCxt $ applySubstitution sub cxt
+
+            _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show typ ++ " exist (rigids: " ++ unwords (map show $ Set.toList rigidVars) ++ "), and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
+    case typ of
+      AppT tn (VarT _) -> do
+        -- This may be a nested GADT, so check for special FromJSON instance
+        insts <- lift $ reifyInstancesWithRigids rigidVars clsName [AppT (ConT ''Some) tn]
+        case insts of
+          [] -> do
+            -- No special instance, try to check the type for a straightforward one, since if we don't have one, we need to demand it.
+            demandInstanceIfNecessary
+            return (VarP x, VarE x)
+          [InstanceD _ cxt (AppT _className (AppT (ConT _some) ityp)) _] -> do
+            sub <- lift $ unifyTypes [ityp, tn]
+            tellCxt $ applySubstitution sub cxt
+            return (ConP 'Some [VarP x], VarE x)
+          _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show (ppr [AppT (ConT ''Some) tn]) ++ " exist (rigids: " ++ unwords (map show $ Set.toList rigidVars) ++ "), and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
+      _ -> do
+        demandInstanceIfNecessary  
+        return (VarP x, VarE x)
+  let pat = TupP (map fst vars)
+      conApp = foldl AppE (ConE name) (map snd vars)
+  return (pat, conApp)
 
 -----------------------------------------------------------------------------------------------------
-
--- | Assuming that we're building an instance of the form C (T v_1 ... v_(n-1)) for some GADT T, this function
--- takes a list of the variables v_1 ... v_(n-1) used in the instance head, as well as the result type of some data
--- constructor, say T x_1 ... x_(n-1) x_n, as well as the type t of some argument to it, and substitutes any of
--- x_i (1 <= i <= n-1) occurring in t for the corresponding v_i, taking care to avoid name capture by foralls in t.
-substVarsWith
-  :: [Name] -- Names of variables used in the instance head in argument order
-  -> Type -- Result type of constructor
-  -> Type -- Type of argument to the constructor
-  -> Type -- Type of argument with variables substituted for instance head variables.
-substVarsWith topVars resultType argType = subst Set.empty argType
-  where
-    topVars' = reverse topVars
-    AppT resultType' _indexType = resultType
-    subst bs = \case
-      ForallT bndrs cxt t ->
-        let bs' = Set.union bs (Set.fromList (map tyVarBndrName bndrs))
-        in ForallT bndrs (map (subst bs') cxt) (subst bs' t)
-      AppT f x -> AppT (subst bs f) (subst bs x)
-      SigT t k -> SigT (subst bs t) k
-      VarT v -> if Set.member v bs
-        then VarT v
-        else VarT (findVar v topVars' resultType')
-      InfixT t1 x t2 -> InfixT (subst bs t1) x (subst bs t2)
-      UInfixT t1 x t2 -> UInfixT (subst bs t1) x (subst bs t2)
-      ParensT t -> ParensT (subst bs t)
-      -- The following cases could all be covered by an "x -> x" case, but I'd rather know if new cases
-      -- need to be handled specially in future versions of Template Haskell.
-      PromotedT n -> PromotedT n
-      ConT n -> ConT n
-      TupleT k -> TupleT k
-      UnboxedTupleT k -> UnboxedTupleT k
-#if MIN_VERSION_template_haskell(2,12,0)
-      UnboxedSumT k -> UnboxedSumT k
-#endif
-      ArrowT -> ArrowT
-      EqualityT -> EqualityT
-      ListT -> ListT
-      PromotedTupleT k -> PromotedTupleT k
-      PromotedNilT -> PromotedNilT
-      PromotedConsT -> PromotedConsT
-      StarT -> StarT
-      ConstraintT -> ConstraintT
-      LitT l -> LitT l
-      WildCardT -> WildCardT
-    findVar v (tv:_) (AppT _ (VarT v')) | v == v' = tv
-    findVar v (_:tvs) (AppT t (VarT _)) = findVar v tvs t
-    findVar v _ _ = error $ "substVarsWith: couldn't look up variable substitution for " ++ show v
-      ++ " with topVars: " ++ show topVars ++ " resultType: " ++ show resultType ++ " argType: " ++ show argType
-
--- | Determine the 'Name' being bound by a 'TyVarBndr'.
-tyVarBndrName :: TyVarBndr -> Name
-tyVarBndrName = \case
-  PlainTV n -> n
-  KindedTV n _ -> n
-
--- | Determine the arity of a kind.
-kindArity :: Kind -> Int
-kindArity = \case
-  ForallT _ _ t -> kindArity t
-  AppT (AppT ArrowT _) t -> 1 + kindArity t
-  SigT t _ -> kindArity t
-  ParensT t -> kindArity t
-  _ -> 0
-
--- | Given the name of a type constructor, determine its full arity
-tyConArity :: Name -> Q Int
-tyConArity n = do
-  (ts, ka) <- tyConArity' n
-  return (length ts + ka)
-
--- | Given the name of a type constructor, determine a list of type variables bound as parameters by
--- its declaration, and the arity of the kind of type being defined (i.e. how many more arguments would
--- need to be supplied in addition to the bound parameters in order to obtain an ordinary type of kind *).
--- If the supplied 'Name' is anything other than a data or newtype, produces an error.
-tyConArity' :: Name -> Q ([TyVarBndr], Int)
-tyConArity' n = reify n >>= return . \case
-  TyConI (DataD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
-  TyConI (NewtypeD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
-  _ -> error $ "tyConArity': Supplied name reified to something other than a data declaration: " ++ show n
-
--- | Determine the constructors bound by a data or newtype declaration. Errors out if supplied with another
--- sort of declaration.
-decCons :: Dec -> [Con]
-decCons = \case
-  DataD _ _ _ _ cs _ -> cs
-  NewtypeD _ _ _ _ c _ -> [c]
-  _ -> error "decCons: Declaration found was not a data or newtype declaration."
 
 -- | Determines the name of a data constructor. It's an error if the 'Con' binds more than one name (which
 -- happens in the case where you use GADT syntax, and give multiple data constructor names separated by commas
@@ -270,12 +260,32 @@ conName c = case c of
   RecGadtC [n] _ _ -> n
   _ -> error "conName: GADT constructors with multiple names not yet supported"
 
--- | Determine the arity of a data constructor.
-conArity :: Con -> Int
-conArity c = case c of
-  NormalC _ ts -> length ts
-  RecC _ ts -> length ts
-  InfixC _ _ _ -> 2
-  ForallC _ _ c' -> conArity c'
-  GadtC _ ts _ -> length ts
-  RecGadtC _ ts _ -> length ts
+-- | Determine the arity of a kind.
+kindArity :: Kind -> Int
+kindArity = \case
+  ForallT _ _ t -> kindArity t
+  AppT (AppT ArrowT _) t -> 1 + kindArity t
+  SigT t _ -> kindArity t
+  ParensT t -> kindArity t
+  _ -> 0
+
+-- | Given the name of a type constructor, determine a list of type variables bound as parameters by
+-- its declaration, and the arity of the kind of type being defined (i.e. how many more arguments would
+-- need to be supplied in addition to the bound parameters in order to obtain an ordinary type of kind *).
+-- If the supplied 'Name' is anything other than a data or newtype, produces an error.
+tyConArity' :: Name -> Q ([TyVarBndr], Int)
+tyConArity' n = reify n >>= return . \case
+  TyConI (DataD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
+  TyConI (NewtypeD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
+  _ -> error $ "tyConArity': Supplied name reified to something other than a data declaration: " ++ show n
+
+
+-----------------------------------------------------------------------------------------------------
+
+restrictKeys :: Ord k => Map k v -> Set k -> Map k v
+restrictKeys m s =
+#if MIN_VERSION_containers(0,5,8)
+  Map.restrictKeys m s
+#else
+  Map.intersection m $ Map.fromSet (const ()) s
+#endif
