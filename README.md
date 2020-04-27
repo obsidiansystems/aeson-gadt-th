@@ -18,12 +18,12 @@ Example Usage:
 >
 > import Data.Aeson
 > import Data.Aeson.GADT.TH
->
-> import Data.Dependent.Map (DMap, Some(..))
+> import Data.Dependent.Map (DMap)
 > import Data.Dependent.Sum (DSum)
 > import Data.Functor.Identity
 > import Data.GADT.Compare
 > import Data.GADT.Show.TH
+> import Data.Some (Some(..))
 >
 > data A :: * -> * where
 >   A_a :: A a
