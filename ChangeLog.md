@@ -1,5 +1,9 @@
 # Revision history for aeson-gadt-th
 
+## 0.2.3
+
+* Support for GHC 8.8
+
 ## 0.2.2
 
 * Do a better job determining which variables are rigid when looking for instances
