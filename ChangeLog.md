@@ -1,6 +1,6 @@
 # Revision history for aeson-gadt-th
 
-## 0.2.3
+## 0.2.4
 
 * Support for GHC 8.8
 
