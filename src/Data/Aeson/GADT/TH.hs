@@ -7,6 +7,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -50,6 +51,12 @@ import qualified Data.Set as Set
 import Language.Haskell.TH.Datatype
 
 import System.IO (hFlush, stdout)
+
+#if MIN_VERSION_dependent_sum(0,5,0)
+#else
+pattern Some :: tag a -> Some tag
+pattern Some x = This x
+#endif
 
 -- Do not export this type family, it must remain empty. It's used as a way to trick GHC into not unifying certain type variables.
 type family Skolem :: k -> k

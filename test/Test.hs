@@ -1,7 +1,9 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -14,6 +16,12 @@ import Data.Aeson.QQ
 import Data.Aeson.GADT.TH
 import Expectations
 import Test.Hspec
+
+#if MIN_VERSION_dependent_sum(0,5,0)
+#else
+pattern Some :: tag a -> Some tag
+pattern Some x = This x
+#endif
 
 main :: IO ()
 main = hspec $ do
