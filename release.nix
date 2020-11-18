@@ -11,6 +11,6 @@ let
       sha256 = "11z6ajj108fy2q5g8y4higlcaqncrbjm3dnv17pvif6avagw4mcb";
     }) {};
    oldCompilers = [ "ghc802" "ghc844" ];
-   compilers = [ "ghc865" "ghc884" "ghc8102" ];
+   compilers = [ "ghc865" "ghc884" "ghc8101" ];
    compileWith = ghcs: pkgs: map (c: pkgs.haskell.packages."${c}".callCabal2nix "aeson-gadt-th" ./. {}) ghcs;
 in compileWith compilers nixos2003 ++ compileWith oldCompilers nixos1903
