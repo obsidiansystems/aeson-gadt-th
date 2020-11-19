@@ -1,6 +1,6 @@
 # Revision history for aeson-gadt-th
 
-## 0.2.5
+## 0.2.5.0
 
 * Support for GHC 8.10
 * Support for aeson 1.5.*
