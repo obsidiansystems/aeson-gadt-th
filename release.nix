@@ -3,39 +3,67 @@ let
   nixpkgsSets = import ./.ci/nixpkgs.nix;
   inherit (nixpkgsSets) nixos1809 nixos2003;
   inherit (nixos2003) lib;
+  inherit (nixos2003.haskell.lib) doJailbreak;
+  dep-sum-overrides = self: super: {
+    dependent-sum-template = self.callHackageDirect {
+      pkg = "dependent-sum-template";
+      ver = "0.1.0.3";
+      sha256 = "0m5nblmwbx2810hhnlcz1c8vwis47kd3xir1ylfk0dgxa0n1ag3f";
+    } {};
+    dependent-sum = self.callHackageDirect {
+      pkg = "dependent-sum";
+      ver = "0.7.1.0";
+      sha256 = "0jjdjhkhny8hiz9q17bqdgncca8gb0nqdnqz3xpwa3g2g0qisrp0";
+    } {};
+    some = doJailbreak super.some;
+    dependent-map = self.callHackageDirect {
+      pkg = "dependent-map";
+      ver = "0.4.0.0";
+      sha256 = "1jycg6hz350mjbiqnqii90k3fbz95rbwd3kw09n4x9r053bbz3jn";
+    } {};
+  };
+  ghc810-overrides = self: super: dep-sum-overrides self super // {
+    th-expand-syns = self.callHackageDirect {
+      pkg = "th-expand-syns";
+      ver = "0.4.6.0";
+      sha256 = "1l2g98jfg86blp8mkkvzh90h557l5qklw1nn045zqb5am8977dgq";
+    } {};
+    ChasingBottoms = self.callHackageDirect {
+      pkg = "ChasingBottoms";
+      ver = "1.3.1.8";
+      sha256 = "0klxmb6pgl2xv5206gn2m3n1di2aidkfyi5rlqcfdx5qvpbnhl19";
+    } {};
+    haskell-src-meta = self.callHackageDirect {
+      pkg = "haskell-src-meta";
+      ver = "0.8.5";
+      sha256 = "1dhncvsyv2kc8x18gvr7if4pr7vvypl0lr450jaaj3xj7rly3lwv";
+    } {};
+    haskell-src-exts = self.callHackageDirect {
+      pkg = "haskell-src-exts";
+      ver = "1.22.0";
+      sha256 = "1w1fzpid798b5h090pwpz7n4yyxw4hq3l4r493ygyr879dvjlr8d";
+    } {};
+    constraints = self.callHackageDirect {
+      pkg = "constraints";
+      ver = "0.11";
+      sha256 = "0xi2p57hsdy31f8a4isxxp1zgv8m7a26c586jlz8p2rmk0ypw3pj";
+    } {};
+    constraints-extras = doJailbreak super.constraints-extras;
+    some = doJailbreak super.some;
+  };
   ghcs = rec {
     ghc802 = nixos1809.haskell.packages.ghc802;
     ghc844 = nixos1809.haskell.packages.ghc844;
     ghc865 = nixos2003.haskell.packages.ghc865;
-    ghc884 = nixos2003.haskell.packages.ghc884;
-    ghc8101 = nixos2003.haskell.packages.ghc8101.override {
-      overrides = self: super: {
-        th-expand-syns = self.callHackageDirect {
-          pkg = "th-expand-syns";
-          ver = "0.4.6.0";
-          sha256 = "1l2g98jfg86blp8mkkvzh90h557l5qklw1nn045zqb5am8977dgq";
-        } {};
-        ChasingBottoms = self.callHackageDirect {
-          pkg = "ChasingBottoms";
-          ver = "1.3.1.8";
-          sha256 = "sha256:0klxmb6pgl2xv5206gn2m3n1di2aidkfyi5rlqcfdx5qvpbnhl19";
-        } {};
-        haskell-src-meta = self.callHackageDirect {
-          pkg = "haskell-src-meta";
-          ver = "0.8.5";
-          sha256 = "1dhncvsyv2kc8x18gvr7if4pr7vvypl0lr450jaaj3xj7rly3lwv";
-        } {};
-        haskell-src-exts = self.callHackageDirect {
-          pkg = "haskell-src-exts";
-          ver = "1.23.1";
-          sha256 = "sha256:144q88agqqfpc8z1h2jr6mgx5xs72wxkrx4kbpsfg9cza3jm9fbx";
-        } {};
-      };
+    ghc884 = nixos2003.haskell.packages.ghc884.override {
+      overrides = dep-sum-overrides;
     };
-    ghc8101_aeson15 = ghc8101.override {
-      overrides = self: super:
-      let lib = nixos2003.haskell.lib;
-      in {
+    ghc8101 = nixos2003.haskell.packages.ghc8101.override {
+      overrides = ghc810-overrides;
+    };
+    ghc8101_aeson15 = nixos2003.haskell.packages.ghc8101.override {
+      overrides = self: super: ghc810-overrides self super //
+      {
         these = self.callHackageDirect {
           pkg = "these";
           ver = "1.1.1.1";
@@ -46,7 +74,7 @@ let
           ver = "1.5.4.1";
           sha256 = "1kwhxfxff2jrrlrqmr9m846g0lq2iin32hwl5i8x7wqhscx5swh5";
         } {};
-        hashable-time = lib.doJailbreak super.hashable-time;
+        hashable-time = doJailbreak super.hashable-time;
         Diff = self.callHackageDirect {
           pkg = "Diff";
           ver = "0.4.0";
