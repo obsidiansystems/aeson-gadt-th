@@ -41,7 +41,6 @@ import Data.List
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
-import qualified Data.Set as Set
 import Data.Some (Some (..))
 import Language.Haskell.TH hiding (cxt)
 import Language.Haskell.TH.Extras (nameOfBinder)
@@ -174,7 +173,12 @@ conMatchesToJSON opts allTopVars c = do
       base = gadtConstructorModifier opts $ nameBase name
       toJSONExp e = [| toJSON $(e) |]
   vars <- lift . forM (constructorFields c) $ \_ -> newName "x"
-  let body = toJSONExp $ tupE [ [| base :: String |] , tupE $ map (toJSONExp . varE) vars ]
+  let body = toJSONExp $ tupE
+        [ [| base :: String |]
+        , case vars of
+            [v] -> toJSONExp $ varE v
+            vs -> tupE $ map (toJSONExp . varE) vs
+        ]
   _ <- conMatches ''ToJSON topVars lastVar c
   lift $ match (conP name (map varP vars)) (normalB body) []
 
@@ -248,7 +252,9 @@ conMatches clsName topVars ixVar c = do
       _ -> do
         demandInstanceIfNecessary  
         return (VarP x, VarE x)
-  let pat = TupP (map fst vars)
+  let pat = case vars of
+        [v] -> fst v
+        vs -> TupP (map fst vs)
       conApp = foldl AppE (ConE name) (map snd vars)
   return (pat, conApp)
 
