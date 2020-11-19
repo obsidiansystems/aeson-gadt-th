@@ -4,6 +4,8 @@
 
 * Support for GHC 8.10
 * Support for aeson 1.5.*
+* Fix [#21](https://github.com/obsidiansystems/aeson-gadt-th/issues/21): deriveJSONGADT requires `toJSON` and `parseJSON` to be in scope
+* Fix [#25](https://github.com/obsidiansystems/aeson-gadt-th/issues/25): Test suite does not compile (on GHC 8.10)
 
 ## 0.2.4
 

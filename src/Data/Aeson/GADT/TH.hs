@@ -33,23 +33,19 @@ module Data.Aeson.GADT.TH
 
   ) where
 
-import Control.Monad
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Writer
-import Data.Aeson
-import Data.List
+import Control.Monad (forM, replicateM)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Writer (WriterT, runWriterT, tell)
+import Data.Aeson (FromJSON(..), ToJSON(..))
+import Data.List (group, intercalate, partition, sort)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe
-import Data.Some (Some (..))
-import Language.Haskell.TH hiding (cxt)
-import Language.Haskell.TH.Extras (nameOfBinder)
 import Data.Set (Set)
 import qualified Data.Set as Set
-
-import Language.Haskell.TH.Datatype
-
-import System.IO (hFlush, stdout)
+import Data.Some (Some(..))
+import Language.Haskell.TH hiding (cxt)
+import Language.Haskell.TH.Datatype (ConstructorInfo(..), applySubstitution, datatypeCons, reifyDatatype, unifyTypes)
+import Language.Haskell.TH.Extras (nameOfBinder)
 
 #if MIN_VERSION_dependent_sum(0,5,0)
 #else
@@ -69,13 +65,13 @@ skolemize :: Set Name -> Type -> Type
 skolemize rigids t = case t of
   ForallT bndrs cxt t' -> ForallT bndrs cxt (skolemize (Set.difference rigids (Set.fromList (map tyVarBndrName bndrs))) t')
   AppT t1 t2 -> AppT (skolemize rigids t1) (skolemize rigids t2)
-  SigT t k -> SigT (skolemize rigids t) k
+  SigT t1 k -> SigT (skolemize rigids t1) k
   VarT v -> if Set.member v rigids
     then AppT (ConT ''Skolem) (VarT v)
     else t
   InfixT t1 n t2 -> InfixT (skolemize rigids t1) n (skolemize rigids t2)
   UInfixT t1 n t2 -> UInfixT (skolemize rigids t1) n (skolemize rigids t2)
-  ParensT t -> ParensT (skolemize rigids t)
+  ParensT t1 -> ParensT (skolemize rigids t1)
   _ -> t
 
 reifyInstancesWithRigids :: Set Name -> Name -> [Type] -> Q [InstanceDec]
@@ -86,7 +82,7 @@ freeTypeVariables :: Type -> Set Name
 freeTypeVariables t = case t of
   ForallT bndrs _ t' -> Set.difference (freeTypeVariables t') (Set.fromList (map nameOfBinder bndrs))
   AppT t1 t2 -> Set.union (freeTypeVariables t1) (freeTypeVariables t2)
-  SigT t _ -> freeTypeVariables t
+  SigT t1 _ -> freeTypeVariables t1
   VarT n -> Set.singleton n
   _ -> Set.empty
 
@@ -117,9 +113,8 @@ deriveToJSONGADTWithOptions opts n = do
   topVars <- makeTopVars n
   let n' = foldl (\c v -> AppT c (VarT v)) (ConT n) topVars
   (matches, constraints') <- runWriterT (mapM (fmap pure . conMatchesToJSON opts topVars) cons)
-  m <- sequence matches
   let constraints = map head . group . sort $ constraints' -- This 'head' is safe because 'group' returns a list of non-empty lists
-  impl <- funD (mkName "toJSON")
+  impl <- funD 'toJSON
     [ clause [] (normalB $ lamCaseE matches) []
     ]
   return [ InstanceD Nothing constraints (AppT (ConT ''ToJSON) n') [impl] ]
@@ -152,7 +147,7 @@ deriveFromJSONGADTWithOptions opts n = do
   (matches, constraints') <- runWriterT $ mapM (conMatchesParseJSON opts topVars [|_v'|]) cons
   let constraints = map head . group . sort $ constraints' -- This 'head' is safe because 'group' returns a list of non-empty lists
   v <- newName "v"
-  parser <- funD (mkName "parseJSON")
+  parser <- funD 'parseJSON
     [ clause [varP v] (normalB [e| 
         do (tag', _v') <- parseJSON $(varE v)
            $(caseE [|tag' :: String|] $ map pure matches ++ [wild])
@@ -202,8 +197,7 @@ conMatches
   -> ConstructorInfo
   -> WriterT [Type] Q (Pat, Exp)
 conMatches clsName topVars ixVar c = do
-  let mkConstraint = AppT (ConT clsName)
-      name = constructorName c
+  let name = constructorName c
       types = constructorFields c
       (constraints, equalities') = flip partition (constructorContext c) $ \case
         AppT (AppT EqualityT _) _ -> False
@@ -224,7 +218,7 @@ conMatches clsName topVars ixVar c = do
       -- We filter out constraints which don't mention variables from the instance head mostly to avoid warnings,
       -- but a good deal more of these occur than one might expect due to the normalisation done by reifyDatatype.
       tellCxt cs = do
-        tell [c | c <- applySubstitution ixSpecialization cs ]
+        tell $ applySubstitution ixSpecialization cs
   tellCxt constraints
   vars <- forM types $ \typ -> do
     x <- lift $ newName "x"
@@ -264,19 +258,6 @@ conMatches clsName topVars ixVar c = do
 
 -----------------------------------------------------------------------------------------------------
 
--- | Determines the name of a data constructor. It's an error if the 'Con' binds more than one name (which
--- happens in the case where you use GADT syntax, and give multiple data constructor names separated by commas
--- in a type signature in the where clause).
-conName :: Con -> Name
-conName c = case c of
-  NormalC n _ -> n
-  RecC n _ -> n
-  InfixC _ n _ -> n
-  ForallC _ _ c' -> conName c'
-  GadtC [n] _ _ -> n
-  RecGadtC [n] _ _ -> n
-  _ -> error "conName: GADT constructors with multiple names not yet supported"
-
 -- | Determine the arity of a kind.
 kindArity :: Kind -> Int
 kindArity = \case
@@ -292,8 +273,8 @@ kindArity = \case
 -- If the supplied 'Name' is anything other than a data or newtype, produces an error.
 tyConArity' :: Name -> Q ([TyVarBndr], Int)
 tyConArity' n = reify n >>= return . \case
-  TyConI (DataD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
-  TyConI (NewtypeD _ _ ts mk _ _) -> (ts, fromMaybe 0 (fmap kindArity mk))
+  TyConI (DataD _ _ ts mk _ _) -> (ts, maybe 0 kindArity mk)
+  TyConI (NewtypeD _ _ ts mk _ _) -> (ts, maybe 0 kindArity mk)
   _ -> error $ "tyConArity': Supplied name reified to something other than a data declaration: " ++ show n
 
 
