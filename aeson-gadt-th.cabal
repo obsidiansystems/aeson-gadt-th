@@ -21,7 +21,7 @@ flag build-readme
 library
   exposed-modules: Data.Aeson.GADT.TH
   build-depends: base >= 4.8 && < 4.15
-               , aeson >= 1.3 && < 1.5
+               , aeson >= 1.3 && < 1.6
                , containers >= 0.5 && < 0.7
                , dependent-sum >= 0.4 && < 0.8
                , transformers >= 0.5 && < 0.6

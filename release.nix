@@ -1,9 +1,9 @@
 { }:
 let
   nixpkgsSets = import ./.ci/nixpkgs.nix;
-  inherit (nixpkgsSets) nixos1809 nixos2003;
+  inherit (nixpkgsSets) nixos1809 nixos2003 unstable;
   inherit (nixos2003) lib;
-  inherit (nixos2003.haskell.lib) doJailbreak;
+  inherit (nixos2003.haskell.lib) doJailbreak dontCheck;
   dep-sum-overrides = self: super: {
     dependent-sum-template = self.callHackageDirect {
       pkg = "dependent-sum-template";
@@ -61,30 +61,36 @@ let
     ghc8101 = nixos2003.haskell.packages.ghc8101.override {
       overrides = ghc810-overrides;
     };
+    ghc8102 = unstable.haskell.packages.ghc8102;
     ghc8101_aeson15 = nixos2003.haskell.packages.ghc8101.override {
       overrides = self: super: ghc810-overrides self super //
-      {
+      { assoc = doJailbreak super.assoc;
+        strict = self.callHackageDirect {
+          pkg = "strict";
+          ver = "0.4";
+          sha256 = "0sl9mfpnyras2jlpjfnji4406fzp0yg2kxfcr22s3zwpir622a97";
+        } {};
         these = self.callHackageDirect {
           pkg = "these";
           ver = "1.1.1.1";
           sha256 = "1i1nfh41vflvqxi8w8n2s35ymx2z9119dg5zmd2r23ya7vwvaka1";
         } {};
-        aeson = self.callHackageDirect {
+        aeson = doJailbreak (self.callHackageDirect {
           pkg = "aeson";
-          ver = "1.5.4.1";
-          sha256 = "1kwhxfxff2jrrlrqmr9m846g0lq2iin32hwl5i8x7wqhscx5swh5";
-        } {};
+          ver = "1.5.2.0";
+          sha256 = "0rz7j7bcj5li2c5dmiv3pnmbs581vzkl9rbx9wq2v06f4knaklkf";
+        } {});
         hashable-time = doJailbreak super.hashable-time;
         Diff = self.callHackageDirect {
           pkg = "Diff";
           ver = "0.4.0";
           sha256 = "1phz4cz7i53jx3d1bj0xnx8vpkk482g4ph044zv5c6ssirnzq3ng";
         } {};
-        doctest = self.callHackageDirect {
+        doctest = dontCheck (self.callHackageDirect {
           pkg = "doctest";
           ver = "0.16.3";
           sha256 = "0rm91akq3d4b8xa127dklgd1vg2x9xv962pg98i7xhgnllp6i5r3";
-        } {};
+        } {});
         quickcheck-instances = self.callHackageDirect {
           pkg = "quickcheck-instances";
           ver = "0.3.23";
