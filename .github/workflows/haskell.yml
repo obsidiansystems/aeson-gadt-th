@@ -12,7 +12,8 @@ jobs:
         # There are some linker warnings in 802 on darwin that
         # cause compilation to fail
         # See https://github.com/NixOS/nixpkgs/issues/25139
-        - {ghc:'8.0.2', os:'macos-latest'}
+        - ghc: '8.0.2'
+          os: 'macos-latest'
     runs-on: ${{ matrix.os }}
 
     name: GHC ${{ matrix.ghc }} on ${{ matrix.os }}
