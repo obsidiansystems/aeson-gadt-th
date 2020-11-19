@@ -175,6 +175,8 @@ conMatchesToJSON opts allTopVars c = do
   vars <- lift . forM (constructorFields c) $ \_ -> newName "x"
   let body = toJSONExp $ tupE
         [ [| base :: String |]
+         -- The singleton is special-cased because of
+         -- https://downloads.haskell.org/ghc/8.10.1-rc1/docs/html/users_guide/8.10.1-notes.html#template-haskell
         , case vars of
             [v] -> toJSONExp $ varE v
             vs -> tupE $ map (toJSONExp . varE) vs
@@ -252,6 +254,8 @@ conMatches clsName topVars ixVar c = do
       _ -> do
         demandInstanceIfNecessary  
         return (VarP x, VarE x)
+  -- The singleton is special-cased because of
+  -- https://downloads.haskell.org/ghc/8.10.1-rc1/docs/html/users_guide/8.10.1-notes.html#template-haskell
   let pat = case vars of
         [v] -> fst v
         vs -> TupP (map fst vs)
