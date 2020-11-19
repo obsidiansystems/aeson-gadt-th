@@ -1,5 +1,6 @@
 aeson-gadt-th
 =============
+[![Haskell](https://img.shields.io/badge/language-Haskell-orange.svg)](https://haskell.org) [![Hackage](https://img.shields.io/hackage/v/aeson-gadt-th.svg)](https://hackage.haskell.org/package/aeson-gadt-th) [![Hackage CI](https://matrix.hackage.haskell.org/api/v2/packages/aeson-gadt-th/badge)](https://matrix.hackage.haskell.org/#/package/aeson-gadt-th) [![Github CI](https://github.com/obsidiansystems/aeson-gadt-th/workflows/github-action/badge.svg)](https://github.com/obsidiansystems/aeson-gadt-th/actions) [![BSD3 License](https://img.shields.io/badge/license-BSD3-blue.svg)](https://github.com/obsidiansystems/aeson-gadt-th/blob/master/LICENSE)
 
 Provides Template Haskell expressions for deriving `ToJSON` and `FromJSON` instances for GADTs.
 
@@ -108,3 +109,7 @@ Example Usage:
 >         _-> "Failed"
 >     ]
 ```
+
+***
+
+[![Obsidian Systems](https://obsidian.systems/static/images/ObsidianSystemsLogo.svg)](https://obsidian.systems)
