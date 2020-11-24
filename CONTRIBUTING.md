@@ -15,7 +15,7 @@ Before opening an issue, please check whether your issue has already been report
 * Describe the issue you're encountering or the suggestion you're making
 * Include any relevant steps to reproduce or code samples you can. It's always easier for us to debug if we have something that demonstrates the error.
 * Let us know what version of this project you were using. If you're using a github checkout, provide the git hash.
-* Describe how you're building reflex (i.e., via reflex-platform, cabal install, stack, obelisk, etc.). If you're using reflex-platform or obelisk, provide the git hash of your checkout.
+* Describe how you're building this project (i.e., via reflex-platform, cabal install, stack, obelisk, etc.). If you're using reflex-platform or obelisk, provide the git hash of your checkout.
 
 ## Submitting Changes
 
