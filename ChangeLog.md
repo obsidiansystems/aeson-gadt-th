@@ -1,5 +1,10 @@
 # Revision history for aeson-gadt-th
 
+## Unreleased
+
+* Remove dependency on `th-extras`. We were just using a reexport (under a
+  different name) of something from `th-abstractions` anyways.
+
 ## 0.2.5.0 - 2020-11-18
 
 * Support for GHC 8.10

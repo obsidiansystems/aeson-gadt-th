@@ -44,8 +44,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Some (Some(..))
 import Language.Haskell.TH hiding (cxt)
-import Language.Haskell.TH.Datatype (ConstructorInfo(..), applySubstitution, datatypeCons, reifyDatatype, unifyTypes)
-import Language.Haskell.TH.Extras (nameOfBinder)
+import Language.Haskell.TH.Datatype (ConstructorInfo(..), applySubstitution, datatypeCons, reifyDatatype, tvName, unifyTypes)
 
 #if MIN_VERSION_dependent_sum(0,5,0)
 #else
@@ -56,14 +55,9 @@ pattern Some x = This x
 -- Do not export this type family, it must remain empty. It's used as a way to trick GHC into not unifying certain type variables.
 type family Skolem :: k -> k
 
-tyVarBndrName :: TyVarBndr -> Name
-tyVarBndrName = \case
-  PlainTV n -> n
-  KindedTV n _ -> n
-
 skolemize :: Set Name -> Type -> Type
 skolemize rigids t = case t of
-  ForallT bndrs cxt t' -> ForallT bndrs cxt (skolemize (Set.difference rigids (Set.fromList (map tyVarBndrName bndrs))) t')
+  ForallT bndrs cxt t' -> ForallT bndrs cxt (skolemize (Set.difference rigids (Set.fromList (map tvName bndrs))) t')
   AppT t1 t2 -> AppT (skolemize rigids t1) (skolemize rigids t2)
   SigT t1 k -> SigT (skolemize rigids t1) k
   VarT v -> if Set.member v rigids
@@ -80,7 +74,7 @@ reifyInstancesWithRigids rigids cls tys = reifyInstances cls (map (skolemize rig
 -- | Determine the type variables which occur freely in a type.
 freeTypeVariables :: Type -> Set Name
 freeTypeVariables t = case t of
-  ForallT bndrs _ t' -> Set.difference (freeTypeVariables t') (Set.fromList (map nameOfBinder bndrs))
+  ForallT bndrs _ t' -> Set.difference (freeTypeVariables t') (Set.fromList (map tvName bndrs))
   AppT t1 t2 -> Set.union (freeTypeVariables t1) (freeTypeVariables t2)
   SigT t1 _ -> freeTypeVariables t1
   VarT n -> Set.singleton n
@@ -123,7 +117,7 @@ makeTopVars :: Name -> Q [Name]
 makeTopVars tyConName = do
   (tyVarBndrs, kArity) <- tyConArity' tyConName
   extraVars <- replicateM kArity (newName "topvar")
-  return (map tyVarBndrName tyVarBndrs ++ extraVars)
+  return (map tvName tyVarBndrs ++ extraVars)
 
 deriveFromJSONGADT :: Name -> DecsQ
 deriveFromJSONGADT = deriveFromJSONGADTWithOptions defaultJSONGADTOptions
