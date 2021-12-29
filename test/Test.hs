@@ -23,6 +23,30 @@ pattern Some :: tag a -> Some tag
 pattern Some x = This x
 #endif
 
+data Foo a where
+  Bar :: Char -> Foo Char
+  Baz :: Float -> Foo Float
+
+deriving instance Show (Foo a)
+deriving instance Eq (Foo a)
+
+instance GShow Foo where gshowsPrec = showsPrec
+
+data Spam a where
+  Spam'Eggs :: Char -> Spam Char
+  Spam'Life :: Float -> Spam Float
+
+deriving instance Show (Spam a)
+deriving instance Eq (Spam a)
+
+instance GShow Spam where gshowsPrec = showsPrec
+
+deriveJSONGADT ''Foo
+
+deriveJSONGADTWithOptions
+  (JSONGADTOptions { gadtConstructorModifier = drop 5 })
+  ''Spam
+
 main :: IO ()
 main = hspec $ do
   describe "aeson-gadt-th" $ do
@@ -47,27 +71,3 @@ main = hspec $ do
         `shouldMatchPattern_` (\case Success (Some (Spam'Life 1.2)) -> ())
       (fromJSON [aesonQQ| ["bad", "input"] |] :: Result (Some Spam))
         `shouldMatchPattern_` (\case Error "Expected tag to be one of [Eggs, Life] but got: bad" -> ())
-
-data Foo a where
-  Bar :: Char -> Foo Char
-  Baz :: Float -> Foo Float
-
-deriving instance Show (Foo a)
-deriving instance Eq (Foo a)
-
-instance GShow Foo where gshowsPrec = showsPrec
-
-data Spam a where
-  Spam'Eggs :: Char -> Spam Char
-  Spam'Life :: Float -> Spam Float
-
-deriving instance Show (Spam a)
-deriving instance Eq (Spam a)
-
-instance GShow Spam where gshowsPrec = showsPrec
-
-deriveJSONGADT ''Foo
-
-deriveJSONGADTWithOptions
-  (JSONGADTOptions { gadtConstructorModifier = drop 5 })
-  ''Spam
