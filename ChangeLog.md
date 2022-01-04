@@ -1,6 +1,6 @@
 # Revision history for aeson-gadt-th
 
-## Unreleased
+## 0.2.5.1 - 2022-01-04
 
 * Remove dependency on `th-extras`. We were just using a reexport (under a
   different name) of something from `th-abstractions` anyways.
