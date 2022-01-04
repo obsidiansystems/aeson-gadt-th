@@ -1,5 +1,9 @@
 # Revision history for aeson-gadt-th
 
+## Unreleased
+
+* Support GHC 9.2
+
 ## 0.2.5.1 - 2022-01-04
 
 * Remove dependency on `th-extras`. We were just using a reexport (under a
