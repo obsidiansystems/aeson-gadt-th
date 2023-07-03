@@ -1,5 +1,9 @@
 # Revision history for aeson-gadt-th
 
+## 0.2.5.2 - 2022-07-03
+
+* Loosen version bounds
+
 ## 0.2.5.1 - 2022-01-04
 
 * Remove dependency on `th-extras`. We were just using a reexport (under a
