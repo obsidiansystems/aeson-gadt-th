@@ -3,6 +3,7 @@
 ## 0.2.5.2 - 2022-07-03
 
 * Loosen version bounds
+* Support GHC 9.2
 
 ## 0.2.5.1 - 2022-01-04
 
