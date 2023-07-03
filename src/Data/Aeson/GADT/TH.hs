@@ -238,7 +238,14 @@ conMatches clsName topVars ixVar c = do
           [InstanceD _ cxt (AppT _className (AppT (ConT _some) ityp)) _] -> do
             sub <- lift $ unifyTypes [ityp, tn]
             tellCxt $ applySubstitution sub cxt
-            return (ConP 'Some [VarP x], VarE x)
+            return ( ConP
+                       'Some
+#if MIN_VERSION_template_haskell(2,18,0)
+                       []
+#endif
+                       [VarP x]
+                   , VarE x
+                   )
           _ -> error $ "The following instances of " ++ show clsName ++ " for " ++ show (ppr [AppT (ConT ''Some) tn]) ++ " exist (rigids: " ++ unwords (map show $ Set.toList rigidVars) ++ "), and I don't know which to pick:\n" ++ unlines (map (show . ppr) insts)
       _ -> do
         demandInstanceIfNecessary  
